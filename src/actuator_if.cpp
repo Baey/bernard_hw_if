@@ -1,37 +1,63 @@
-#include <chrono>
-#include <functional>
-#include <memory>
-#include <string>
-
 #include "candle.hpp"
-#include "rclcpp/rclcpp.hpp"
+#include "pds.hpp"
+#include "MD.hpp"
+#include "logger.hpp"
 
-#include "bernard/actuators.hpp"
+#include <vector>
+#include <thread>
 
-
-int main(int argc, char *argv[])
+int main(int argc, char **argv)
 {
-	rclcpp::init(argc, argv);
+	Logger log(Logger::ProgramLayer_E::TOP, "User Program");
+	// Logger::g_m_verbosity = Logger::Verbosity_E::VERBOSITY_1;
 
-	// auto candle = std::make_shared<mab::Candle>(mab::CAN_BAUD_8M, true);
-	// auto ids = candle->ping();
-	// for (auto &id : ids)
-	// {
-	// 	candle->addMd80(id);
-	// }
+	std::vector<mab::MD> mdV;
 
-	// auto state_pub = std::make_shared<ActuatorStatePublisher>(candle);
-	// auto cmd_sub = std::make_shared<ActuatorCommandSubscriber>(candle);
+	auto candle = std::unique_ptr<mab::Candle>(
+		attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, mab::candleTypes::busTypes_t::USB));
 
-	// candle->begin();
+	for (const auto &id : mab::MD::discoverMDs(candle.get()))
+	{
+		log.info("Found MD with CAN ID: %u", id);
+		mdV.emplace_back(id, candle.get());
+		mdV.back().init();
+	}
 
-	// rclcpp::executors::MultiThreadedExecutor exec;
-	// exec.add_node(state_pub);
-	// exec.add_node(cmd_sub);
-	// exec.spin();
-
-	// candle->end();
-	rclcpp::shutdown();
-
-	return 0;
+	bool run = true;
+	while (run)
+	{
+		for (auto &md : mdV)
+		{
+			if (md.readRegisters(regs.mainEncoderPosition, regs.mainEncoderVelocity) !=
+				mab::MD::Error_t::OK)
+			{
+				log.error("Error reading encoder data!");
+				run = false;
+			}
+			else
+			{
+				log.info("MD %u", md.m_canId);
+				log.info("Position: %.4f", regs.mainEncoderPosition.value);
+				log.info("Velocity: %.4f\n", regs.mainEncoderVelocity.value);
+			}
+		}
+		log.info("----------------------------");
+		for (auto &pds : pdsV)
+		{
+			u32 busVoltage;
+			if (pds.getBusVoltage(busVoltage) != mab::Pds::error_E::OK)
+			{
+				log.error("Error reading bus voltage!");
+				run = false;
+			}
+			else
+			{
+				log.info("PDS %u", pds.getCanId());
+				log.info("Bus voltage: %u mV\n", busVoltage);
+			}
+		}
+		log.info("----------------------------");
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
+	}
+	return EXIT_SUCCESS;
 }
