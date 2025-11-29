@@ -1,18 +1,29 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <queue>
+#include <thread>
+#include <vector>
 
 #include "MD.hpp"
 #include "candle.hpp"
 #include "config.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "sensor_msgs/msg/joy.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
 
 namespace bernard {
 
 constexpr uint8_t ACTUATORS_NUM = 6;
+constexpr std::chrono::milliseconds ZEROING_BLINK_INTERVAL = 1500ms;
+constexpr std::chrono::milliseconds MANUAL_SELECTION_BLINK_INTERVAL = 2500ms;
 
 class ActuatorsControlNode : public rclcpp::Node {
    public:
@@ -21,7 +32,7 @@ class ActuatorsControlNode : public rclcpp::Node {
      * @param candle Pointer to CANdle instance
      * @param mds Reference to vector of MD instances
      */
-    ActuatorsControlNode(std::unique_ptr<mab::Candle> candle, const std::vector<mab::MD>& mds);
+    ActuatorsControlNode(std::unique_ptr<mab::Candle> candle, std::vector<mab::MD>&& mds);
 
     /**
      * @brief Destructor for ActuatorsControlNode
@@ -39,7 +50,7 @@ class ActuatorsControlNode : public rclcpp::Node {
      * @brief Get the current motion mode of all actuators
      * @return Current motion mode
      */
-    const mab::MD::Error_t getActuatorsMotionMode() const { return _actuator_motion_mode; };
+    const ControlMode_t getActuatorsMotionMode() const { return _actuator_motion_mode; };
 
     /**
      * @brief Zero encoders of all actuators
@@ -48,11 +59,21 @@ class ActuatorsControlNode : public rclcpp::Node {
     mab::MD::Error_t zeroEncoders();
 
     /**
+     * @brief Worker-only implementation of zeroing routine
+     *
+     * Contains the interactive, blocking loop that communicates with MDs and waits for
+     * user confirmations. This MUST run on the worker thread (it will block while
+     * waiting for joystick input) and should be enqueued via enqueueTask when run
+     * asynchronously.
+     */
+    mab::MD::Error_t zeroEncodersWork();
+
+    /**
      * @brief Blink selected actuator LEDs
      * @param joint_ids Vector of joint IDs to blink
      * @return mab::MD::Error_t indicating success or failure
      */
-    mab::MD::Error_t blinkActuators(const std::vector<mab::MD>& mds);
+    mab::MD::Error_t blinkActuators(const std::vector<uint16_t>& can_ids);
 
     /**
      * @brief Get the current control mode
@@ -73,12 +94,6 @@ class ActuatorsControlNode : public rclcpp::Node {
      */
     RobotControlMode_t getRobotControlMode() const { return _control_mode; };
 
-    /**
-     * @brief Get the current busy status
-     * @return True if busy, false otherwise
-     */
-    bool isBusy() const { return _is_busy; };
-
    private:
     /// @brief Publish joint states of all robot actuators
     void publish_joint_states();
@@ -92,14 +107,61 @@ class ActuatorsControlNode : public rclcpp::Node {
     /// @brief Callback for command messages
     void command_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
 
+    /// @brief Worker thread loop for CAN operations
+    void canWorkerLoop();
+
+    /// @brief Enqueue a task to be executed by the worker thread
+    /// @param task The task to enqueue
+    void enqueueTask(std::function<void()> task);
+
+    /// @brief Enqueue a task with a result to be executed by the worker thread
+    /// @param work The task to enqueue
+    /// @param timeout The maximum time to wait for the result
+    /// @return The result of the task
+    template <typename R>
+    inline std::optional<R> ActuatorsControlNode::enqueueTaskWithResult(std::function<R()> work,
+                                                                       std::chrono::milliseconds timeout = 1000ms,
+                                                                       std::optional<R> defaultOnTimeout = std::nullopt) {
+        std::promise<R> p;
+        std::future<R> f = p.get_future();
+        enqueueTask([work = std::move(work), p = std::move(p)]() mutable {
+            try {
+                R res = work();
+                p.set_value(res);
+            } catch (...) {
+                try {
+                    p.set_exception(std::current_exception());
+                } catch (...) {
+                    // nothing else we can do
+                }
+            }
+        });
+        if (f.wait_for(timeout) == std::future_status::ready) {
+            try {
+                R value = f.get();
+                return std::make_optional(std::move(value));
+            } catch (...) {
+                RCLCPP_ERROR(rclcpp::get_logger("ActuatorsControlNode"), "Exception while retrieving future result", 0);
+                return std::nullopt;
+            }
+        } else {
+            RCLCPP_WARN(rclcpp::get_logger("ActuatorsControlNode"), "enqueueTaskWithResult timed out");
+            if (defaultOnTimeout.has_value()) return defaultOnTimeout;
+            return std::nullopt;
+        }
+    }
+
     /// @brief Pointer to CANdle instance
-    const std::unique_ptr<mab::Candle> _candle;
+    std::unique_ptr<mab::Candle> _candle;
 
     /// @brief Reference to vector of MD instances
-    const std::vector<mab::MD> _mds;
+    std::vector<mab::MD> _mds;
+
+    /// @brief Vector to hold MD state information
+    std::vector<ActuatorState> _md_states;
 
     /// @brief Message counter
-    size_t count_;
+    size_t _count;
 
     /// @brief ROS2 state timer
     rclcpp::TimerBase::SharedPtr _state_timer;
@@ -117,7 +179,7 @@ class ActuatorsControlNode : public rclcpp::Node {
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr _action_subscriber;
 
     /// @brief ROS2 joystick subscriber
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr _joy_subscriber;
+    rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr _joy_subscriber;
 
     /// @brief Actuator control mode
     ControlMode_t _actuator_motion_mode = mab::MdMode_E::IDLE;
@@ -126,16 +188,49 @@ class ActuatorsControlNode : public rclcpp::Node {
     RobotControlMode_t _control_mode = RobotControlMode_t::OFF;
 
     /// @brief Manual control selected motor index
-    uint8_t _manual_control_actuator_idx = 0;
+    size_t _manual_control_actuator_idx = 0;
 
     /// @brief Stored joystick message
-    sensor_msgs::msg::Joy::SharedPtr _last_joy_msg = nullptr;
-
-    /// @brief If busy processing commands
-    bool _is_busy = false;
+    sensor_msgs::msg::Joy::SharedPtr _last_joy_msg{nullptr};
 
     /// @brief Mutex for thread-safe operations
     std::mutex _mutex;
+
+    /// @brief Mutex for state variables
+    std::mutex _state_mutex;
+
+    /// @brief Worker thread and task queue
+    std::mutex _cmd_mutex;
+
+    /// @brief Condition variable to signal the worker thread
+    std::condition_variable _cmd_cv;
+
+    /// @brief Queue of tasks to be executed by the worker thread
+    std::queue<std::function<void()>> _cmd_queue;
+
+    /// @brief Worker thread
+    std::thread _worker_thread;
+
+    /// @brief Flag to stop the worker thread
+    std::atomic<bool> _worker_stop{false};
+
+    /// @brief Polling interval for the worker thread
+    std::chrono::milliseconds _poll_interval_ms{10};
+
+    /// @brief Mutex for zeroing procedure synchronization
+    std::mutex _zero_mutex;
+
+    /// @brief Condition variable for zeroing procedure synchronization
+    std::condition_variable _zero_cv;
+
+    /// @brief Flag indicating if zeroing procedure is waiting for user input
+    std::atomic<bool> _zero_waiting{false};
+
+    /// @brief Flag indicating if zeroing procedure received user response
+    bool _zero_response = false;
+
+    /// @brief Flag indicating if zeroing procedure should be aborted
+    std::atomic<bool> _zero_abort{false};
 };
 
 /// @brief Control modes for the robot
@@ -144,6 +239,18 @@ enum class RobotControlMode_t {
     MANUAL,
     RL_POLICY,
     HOLD_POSITION
+};
+
+/// @brief Structure to hold MD state information
+struct ActuatorState {
+    /// @brief Position in **rad**
+    float position = 0.0f;
+    /// @brief Velocity in **rad/s**
+    float velocity = 0.0f;
+    /// @brief Torque in **Nm**
+    float torque = 0.0f;
+    /// @brief Temperature in **°C**
+    float temperature = 0.0f;
 };
 
 }  // namespace bernard
