@@ -1,4 +1,4 @@
-name: Build Shared Library
+name: Build node for arm64
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04-arm64 
+    runs-on: ubuntu-22.04-arm
 
     container:
       image: ros:humble-ros-base
