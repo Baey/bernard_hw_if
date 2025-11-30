@@ -1,0 +1,39 @@
+name: Build Shared Library
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04-arm64 
+
+    container:
+      image: ros:humble-ros-base
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install deps
+        run: |
+          apt-get update
+          apt-get install -y libusb-1.0-0-dev
+
+      - name: Build
+        run: bash buildPackage.bash humble Release
+
+      - name: Package .so
+        run: |
+          mkdir -p artifacts
+          cp build/bernard_hw_if/lib/*.so artifacts/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: bernard-actuators-control-node
+          path: artifacts/
