@@ -1,3 +1,4 @@
+[![BERNARD ROS2 Package Test](https://github.com/Baey/bernard_hw_if/actions/workflows/ros2-package.yml/badge.svg)](https://github.com/Baey/bernard_hw_if/actions/workflows/ros2-package.yml)
 # BERNARD Hardware Interface (bernard_hw_if)
 
 ## Overview
