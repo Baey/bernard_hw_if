@@ -26,4 +26,6 @@ jobs:
         run: bash buildPackage.bash jazzy Debug
 
       - name: Test
-        run: ./build/bernard_hw_if/test_actuators_node
+        run: |
+          source install/setup.bash
+          ./build/bernard_hw_if/test_actuators_node
