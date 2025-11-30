@@ -23,9 +23,7 @@ jobs:
           apt-get install -y libusb-1.0-0-dev
 
       - name: Build
-        run: bash buildPackage.bash
+        run: bash buildPackage.bash jazzy Debug
 
       - name: Test
-        run: |
-          source install/setup.bash
-          ./build/bernard_hw_if/test_actuators_node jazzy Debug
+        run: ./build/bernard_hw_if/test_actuators_node
