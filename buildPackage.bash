@@ -3,6 +3,22 @@
 set -e
 
 # --- ROS DISTRO ---
+if [ $# -ge 1 ]; then
+    DISTRO="$1"
+elif [ -n "${ROS_DISTRO:-}" ]; then
+    DISTRO="$ROS_DISTRO"
+    echo "Using currently sourced ROS distro: $DISTRO"
+else
+    echo "Error: No ROS distribution specified and ROS_DISTRO not set."
+    echo "Usage: $0 <ROS_DISTRO> [build_type]"
+    echo "Example: $0 humble release"
+    exit 1
+fi
+
+# Source ROS
+source /opt/ros/$DISTRO/setup.bash
+
+# --- CMAKE BUILD TYPE ---
 if [ $# -lt 2 ]; then
     CMAKE_BUILD_TYPE="Debug"
 else
@@ -15,19 +31,6 @@ else
         echo "Unknown build type: $2"
         exit 1
     fi
-fi
-
-# Source ROS
-source /opt/ros/$DISTRO/setup.bash
-
-# --- CMAKE BUILD TYPE ---
-if [ $# -lt 2 ]; then
-    CMAKE_BUILD_TYPE="Debug"
-elif [ "$2" == "release" ]; then
-    CMAKE_BUILD_TYPE="Release"
-else
-    echo "Unknown build type: $2"
-    exit 1
 fi
 
 # --- BUILD ---
