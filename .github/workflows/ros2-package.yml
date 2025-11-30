@@ -1,6 +1,8 @@
-name: ROS2 C++ Package
+name: BERNARD ROS2 Package Test
 
 on:
+  push:
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
