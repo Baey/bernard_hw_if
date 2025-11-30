@@ -1,3 +1,8 @@
+// Copyright (c) 2025, Błażej Szargut.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 #pragma once
 
 #include "MD.hpp"
@@ -10,7 +15,7 @@
  */
 std::string motionModeToString(const mab::MdMode_E mode);
 
-namespace bernard {
+namespace Bernard {
 /** @brief Convert MD ID enum to joint name string
  * @param id MD ID enum value
  * @return String representation of the joint name
@@ -22,4 +27,4 @@ std::string mdIdToJointName(const mab::canId_t id);
  * @return String representation of the robot control mode
  */
 std::string robotControlModeToString(const RobotControlMode_t mode);
-}  // namespace bernard
+}  // namespace Bernard

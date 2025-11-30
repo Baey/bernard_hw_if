@@ -1,8 +1,14 @@
+// Copyright (c) 2025, Błażej Szargut.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 #pragma once
+
 #include <string>
 #include <unordered_map>
 
-namespace bernard {
+namespace Bernard {
 
 /// @brief Map MD CAN IDs to joint names
 static const std::unordered_map<int, std::string> JOINT_MAP = {
@@ -14,7 +20,7 @@ static const std::unordered_map<int, std::string> JOINT_MAP = {
     {108, "l_knee_joint"},
 };
 
-constexpr std::vector<uint16_t> ALL_CAN_ACTUATOR_IDS = {
+static const std::vector<uint16_t> ALL_CAN_ACTUATOR_IDS = {
     106, 1105, 1108, 107, 1106, 108
 };
 
@@ -42,4 +48,7 @@ constexpr int RIGHT_STICK_Y_AXIS_IDX = 4;
 constexpr int LEFT_TRIGGER_AXIS_IDX = 2;
 constexpr int RIGHT_TRIGGER_AXIS_IDX = 5;
 
-}  // namespace bernard
+/// @brief Error threshold for CAN communication before terminating node
+constexpr size_t CAN_ERROR_THRESHOLD = 10;
+
+}  // namespace Bernard

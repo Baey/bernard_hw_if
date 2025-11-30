@@ -1,3 +1,8 @@
+// Copyright (c) 2025, Błażej Szargut.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include "utils.hpp"
 
 #include "config.hpp"
@@ -23,7 +28,7 @@ std::string motionModeToString(const mab::MdMode_E mode) {
     }
 }
 
-namespace bernard {
+namespace Bernard {
 std::string mdIdToJointName(const mab::canId_t id) {
     auto it = JOINT_MAP.find(static_cast<int>(id));
     if (it != JOINT_MAP.end()) {
@@ -47,4 +52,4 @@ std::string robotControlModeToString(const RobotControlMode_t mode) {
             return "UNKNOWN_CONTROL_MODE";
     }
 }
-}  // namespace bernard
+}  // namespace Bernard

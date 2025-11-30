@@ -1,3 +1,8 @@
+// Copyright (c) 2025, Błażej Szargut.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 #include "actuators_node.hpp"
 
 #include <chrono>
@@ -15,19 +20,33 @@
 
 using namespace std::chrono_literals;
 
-namespace bernard {
+namespace Bernard {
 
-ActuatorsControlNode::ActuatorsControlNode(std::unique_ptr<mab::Candle> candle, std::vector<mab::MD>&& mds)
-    : Node("actuators_interface"), _count(0), _candle(std::move(candle)), _mds(std::move(mds)) {
+ActuatorsControlNode::ActuatorsControlNode(
+    std::unique_ptr<mab::Candle> candle, std::vector<mab::MD>&& mds, ActuatorsControlNodeMode_t mode)
+    : Node("actuators_interface"), _candle(std::move(candle)), _mds(std::move(mds)), _count(0) {
     // Initialize publishers and subscribers
     _state_publisher = this->create_publisher<sensor_msgs::msg::JointState>("joint_states", 10);
     _temp_publisher = this->create_publisher<std_msgs::msg::Float32MultiArray>("driver_temperatures", 10);
-    _action_subscriber = this->create_subscription<std_msgs::msg::Float32MultiArray>(
-        "actions", 10,
-        std::bind(&ActuatorsControlNode::command_callback, this, std::placeholders::_1));
-    _joy_subscriber = this->create_subscription<sensor_msgs::msg::Joy>(
-        "joy", 10,
-        std::bind(&ActuatorsControlNode::joy_callback, this, std::placeholders::_1));
+
+    if (mode == ActuatorsControlNodeMode_t::FULL) {
+        RCLCPP_INFO(this->get_logger(), "ActuatorsControlNode running in FULL mode");
+    } else if (mode == ActuatorsControlNodeMode_t::PUB_ONLY) {
+        RCLCPP_INFO(this->get_logger(), "ActuatorsControlNode running in PUB_ONLY mode");
+    } else if (mode == ActuatorsControlNodeMode_t::PUB_WITH_JOY) {
+        RCLCPP_INFO(this->get_logger(), "ActuatorsControlNode running in PUB_WITH_JOY mode");
+    }
+
+    if (mode == ActuatorsControlNodeMode_t::FULL) {
+        _action_subscriber = this->create_subscription<std_msgs::msg::Float32MultiArray>(
+            "actions", 10,
+            std::bind(&ActuatorsControlNode::command_callback, this, std::placeholders::_1));
+    }
+    if (mode == ActuatorsControlNodeMode_t::FULL || mode == ActuatorsControlNodeMode_t::PUB_WITH_JOY) {
+        _joy_subscriber = this->create_subscription<sensor_msgs::msg::Joy>(
+            "joy", 10,
+            std::bind(&ActuatorsControlNode::joy_callback, this, std::placeholders::_1));
+    }
 
     _state_timer = this->create_wall_timer(10ms, std::bind(&ActuatorsControlNode::publish_joint_states, this));
     _temp_timer = this->create_wall_timer(5000ms, std::bind(&ActuatorsControlNode::publish_joint_temperatures, this));
@@ -129,7 +148,7 @@ void ActuatorsControlNode::canWorkerLoop() {
         // Manual-mode: periodic blink of selected actuator
         if (_control_mode == RobotControlMode_t::MANUAL) {
             auto now = steady_clock::now();
-            if (now - _last_manual_blink >= _manual_blink_interval) {
+            if (now - _last_manual_blink >= MANUAL_SELECTION_BLINK_INTERVAL) {
                 try {
                     // worker is allowed to call _mds directly
                     _mds[_manual_control_actuator_idx].blink();
@@ -197,7 +216,7 @@ mab::MD::Error_t ActuatorsControlNode::zeroEncodersWork() {
             _zero_response = false;
         }
         RCLCPP_INFO(this->get_logger(), "Ready to zero encoder for joint %zu (%s). Press A to zero, B to skip, START to cancel remaining.",
-                    i, mdIdToJointName(_mds[i].m_canId));
+                    i, mdIdToJointName(_mds[i].m_canId).c_str());
 
         // Blink current MD periodically while waiting for user input
         auto last_blink = std::chrono::steady_clock::now();
@@ -234,13 +253,13 @@ mab::MD::Error_t ActuatorsControlNode::zeroEncodersWork() {
         if (do_zero) {
             mab::MD::Error_t r = _mds[i].zero();
             if (r != mab::MD::Error_t::OK) {
-                RCLCPP_ERROR(this->get_logger(), "Failed to zero encoder for joint: %d (%s)", _mds[i].m_canId, mdIdToJointName(_mds[i].m_canId));
+                RCLCPP_ERROR(this->get_logger(), "Failed to zero encoder for joint: %d (%s)", _mds[i].m_canId, mdIdToJointName(_mds[i].m_canId).c_str());
                 overall = r;
             } else {
-                RCLCPP_INFO(this->get_logger(), "Zeroed encoder for joint %d (%s)", _mds[i].m_canId, mdIdToJointName(_mds[i].m_canId));
+                RCLCPP_INFO(this->get_logger(), "Zeroed encoder for joint %d (%s)", _mds[i].m_canId, mdIdToJointName(_mds[i].m_canId).c_str());
             }
         } else {
-            RCLCPP_INFO(this->get_logger(), "Skipped zeroing for joint %d (%s)", _mds[i].m_canId, mdIdToJointName(_mds[i].m_canId));
+            RCLCPP_INFO(this->get_logger(), "Skipped zeroing for joint %d (%s)", _mds[i].m_canId, mdIdToJointName(_mds[i].m_canId).c_str());
         }
     }  // for
 
@@ -253,7 +272,7 @@ mab::MD::Error_t ActuatorsControlNode::zeroEncodersWork() {
 }
 
 mab::MD::Error_t ActuatorsControlNode::setActuatorsMotionMode(const mab::MdMode_E mode) {
-    RCLCPP_INFO(this->get_logger(), "Changing motion mode of all actuators to: %s", motionModeToString(mode));
+    RCLCPP_INFO(this->get_logger(), "Changing motion mode of all actuators to: %s", motionModeToString(mode).c_str());
     _actuator_motion_mode = mode;
 
     auto work = [this, mode]() -> mab::MD::Error_t {
@@ -261,7 +280,7 @@ mab::MD::Error_t ActuatorsControlNode::setActuatorsMotionMode(const mab::MdMode_
         for (auto& md : _mds) {
             mab::MD::Error_t r = md.setMotionMode(mode);
             if (r != mab::MD::Error_t::OK) {
-                RCLCPP_ERROR(this->get_logger(), "Failed to change motion mode for joint: %d (%s)", md.m_canId, mdIdToJointName(md.m_canId));
+                RCLCPP_ERROR(this->get_logger(), "Failed to change motion mode for joint: %d (%s)", md.m_canId, mdIdToJointName(md.m_canId).c_str());
                 result = r;
             }
         }
@@ -330,7 +349,7 @@ void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
         // policy uses torque control
         enqueueTask([this]() {
             for (auto& md : _mds) {
-                mab::MD::Error_t r = md.setMotionMode(mab::MdMode_E::TORQUE);
+                mab::MD::Error_t r = md.setMotionMode(mab::MdMode_E::RAW_TORQUE);
                 if (r != mab::MD::Error_t::OK) {
                     RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to TORQUE: %d", md.m_canId, static_cast<int>(r));
                 }
@@ -348,7 +367,7 @@ mab::MD::Error_t ActuatorsControlNode::blinkActuators(const std::vector<uint16_t
                 if (md.m_canId == id) {
                     mab::MD::Error_t r = md.blink();
                     if (r != mab::MD::Error_t::OK) {
-                        RCLCPP_ERROR(this->get_logger(), "Failed to blink LED for joint: %d (%s)", md.m_canId, mdIdToJointName(md.m_canId));
+                        RCLCPP_ERROR(this->get_logger(), "Failed to blink LED for joint: %d (%s)", md.m_canId, mdIdToJointName(md.m_canId).c_str());
                         result = r;
                     }
                     break;
@@ -387,14 +406,14 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
     };
 
     // current button/axis values (safely extracted)
-    const bool btn_a = safeButton(A_BTN_IDX);
-    const bool btn_b = safeButton(B_BTN_IDX);
-    const bool btn_x = safeButton(X_BTN_IDX);
-    const bool btn_y = safeButton(Y_BTN_IDX);
+    // const bool btn_a = safeButton(A_BTN_IDX);
+    // const bool btn_b = safeButton(B_BTN_IDX);
+    // const bool btn_x = safeButton(X_BTN_IDX);
+    // const bool btn_y = safeButton(Y_BTN_IDX);
     const bool btn_lb = safeButton(LB_BTN_IDX);
     const bool btn_rb = safeButton(RB_BTN_IDX);
-    const bool btn_back = safeButton(BACK_BTN_IDX);
-    const bool btn_start = safeButton(START_BTN_IDX);
+    // const bool btn_back = safeButton(BACK_BTN_IDX);
+    // const bool btn_start = safeButton(START_BTN_IDX);
 
     const float left_trigger = safeAxis(LEFT_TRIGGER_AXIS_IDX);
     const float right_trigger = safeAxis(RIGHT_TRIGGER_AXIS_IDX);
@@ -471,7 +490,7 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
             auto new_mode = _control_mode == RobotControlMode_t::HOLD_POSITION ? RobotControlMode_t::MANUAL
                                                                                : RobotControlMode_t::HOLD_POSITION;
             setRobotControlMode(new_mode);
-            RCLCPP_INFO(this->get_logger(), "X Button pressed. Control mode: %s", robotControlModeToString(_control_mode));
+            RCLCPP_INFO(this->get_logger(), "X Button pressed. Control mode: %s", robotControlModeToString(_control_mode).c_str());
             blinkActuators(ALL_CAN_ACTUATOR_IDS);
             _last_joy_msg = msg;
             return;
@@ -479,7 +498,7 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
             auto new_mode = _control_mode == RobotControlMode_t::RL_POLICY ? RobotControlMode_t::HOLD_POSITION
                                                                            : RobotControlMode_t::RL_POLICY;
             setRobotControlMode(new_mode);
-            RCLCPP_INFO(this->get_logger(), "START Button pressed. Control mode: %s", robotControlModeToString(_control_mode));
+            RCLCPP_INFO(this->get_logger(), "START Button pressed. Control mode: %s", robotControlModeToString(_control_mode).c_str());
             blinkActuators(ALL_CAN_ACTUATOR_IDS);
             _last_joy_msg = msg;
             return;
@@ -555,4 +574,4 @@ void ActuatorsControlNode::command_callback(const std_msgs::msg::Float32MultiArr
     });
 }
 
-}  // namespace bernard
+}  // namespace Bernard

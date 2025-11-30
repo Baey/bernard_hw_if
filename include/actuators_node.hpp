@@ -1,9 +1,15 @@
+// Copyright (c) 2025, Błażej Szargut.
+// All rights reserved.
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
 #pragma once
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -19,11 +25,38 @@
 #include "sensor_msgs/msg/joy.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
 
-namespace bernard {
+namespace Bernard {
 
 constexpr uint8_t ACTUATORS_NUM = 6;
-constexpr std::chrono::milliseconds ZEROING_BLINK_INTERVAL = 1500ms;
-constexpr std::chrono::milliseconds MANUAL_SELECTION_BLINK_INTERVAL = 2500ms;
+constexpr std::chrono::milliseconds ZEROING_BLINK_INTERVAL = std::chrono::milliseconds(1500);
+constexpr std::chrono::milliseconds MANUAL_SELECTION_BLINK_INTERVAL = std::chrono::milliseconds(2500);
+
+/// @brief Control modes for the robot
+enum class RobotControlMode_t {
+    OFF,
+    MANUAL,
+    RL_POLICY,
+    HOLD_POSITION
+};
+
+/// @brief Structure to hold MD state information
+struct ActuatorState {
+    /// @brief Position in **rad**
+    float position = 0.0f;
+    /// @brief Velocity in **rad/s**
+    float velocity = 0.0f;
+    /// @brief Torque in **Nm**
+    float torque = 0.0f;
+    /// @brief Temperature in **°C**
+    float temperature = 0.0f;
+};
+
+/// @brief Modes for ActuatorsControlNode
+enum class ActuatorsControlNodeMode_t {
+    FULL,
+    PUB_ONLY,
+    PUB_WITH_JOY
+};
 
 class ActuatorsControlNode : public rclcpp::Node {
    public:
@@ -31,8 +64,12 @@ class ActuatorsControlNode : public rclcpp::Node {
      * @brief Constructor for ActuatorsControlNode
      * @param candle Pointer to CANdle instance
      * @param mds Reference to vector of MD instances
+     * @param Mode Node operation mode
      */
-    ActuatorsControlNode(std::unique_ptr<mab::Candle> candle, std::vector<mab::MD>&& mds);
+    ActuatorsControlNode(
+        std::unique_ptr<mab::Candle> candle,
+        std::vector<mab::MD>&& mds,
+        ActuatorsControlNodeMode_t mode = ActuatorsControlNodeMode_t::FULL);
 
     /**
      * @brief Destructor for ActuatorsControlNode
@@ -50,7 +87,7 @@ class ActuatorsControlNode : public rclcpp::Node {
      * @brief Get the current motion mode of all actuators
      * @return Current motion mode
      */
-    const ControlMode_t getActuatorsMotionMode() const { return _actuator_motion_mode; };
+    mab::MdMode_E getActuatorsMotionMode() const { return _actuator_motion_mode; }
 
     /**
      * @brief Zero encoders of all actuators
@@ -119,18 +156,19 @@ class ActuatorsControlNode : public rclcpp::Node {
     /// @param timeout The maximum time to wait for the result
     /// @return The result of the task
     template <typename R>
-    inline std::optional<R> ActuatorsControlNode::enqueueTaskWithResult(std::function<R()> work,
-                                                                       std::chrono::milliseconds timeout = 1000ms,
-                                                                       std::optional<R> defaultOnTimeout = std::nullopt) {
-        std::promise<R> p;
-        std::future<R> f = p.get_future();
+    inline std::optional<R> enqueueTaskWithResult(
+        std::function<R()> work,
+        std::chrono::milliseconds timeout = std::chrono::milliseconds(1000),
+        std::optional<R> defaultOnTimeout = std::nullopt) {
+        auto p = std::make_shared<std::promise<R>>();
+        std::future<R> f = p->get_future();
         enqueueTask([work = std::move(work), p = std::move(p)]() mutable {
             try {
                 R res = work();
-                p.set_value(res);
+                p->set_value(res);
             } catch (...) {
                 try {
-                    p.set_exception(std::current_exception());
+                    p->set_exception(std::current_exception());
                 } catch (...) {
                     // nothing else we can do
                 }
@@ -141,7 +179,7 @@ class ActuatorsControlNode : public rclcpp::Node {
                 R value = f.get();
                 return std::make_optional(std::move(value));
             } catch (...) {
-                RCLCPP_ERROR(rclcpp::get_logger("ActuatorsControlNode"), "Exception while retrieving future result", 0);
+                RCLCPP_ERROR(rclcpp::get_logger("ActuatorsControlNode"), "Exception while retrieving future result");
                 return std::nullopt;
             }
         } else {
@@ -152,7 +190,7 @@ class ActuatorsControlNode : public rclcpp::Node {
     }
 
     /// @brief Pointer to CANdle instance
-    std::unique_ptr<mab::Candle> _candle;
+    std::unique_ptr<mab::Candle> _candle{nullptr};
 
     /// @brief Reference to vector of MD instances
     std::vector<mab::MD> _mds;
@@ -161,7 +199,7 @@ class ActuatorsControlNode : public rclcpp::Node {
     std::vector<ActuatorState> _md_states;
 
     /// @brief Message counter
-    size_t _count;
+    size_t _count{0};
 
     /// @brief ROS2 state timer
     rclcpp::TimerBase::SharedPtr _state_timer;
@@ -182,7 +220,7 @@ class ActuatorsControlNode : public rclcpp::Node {
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr _joy_subscriber;
 
     /// @brief Actuator control mode
-    ControlMode_t _actuator_motion_mode = mab::MdMode_E::IDLE;
+    mab::MdMode_E _actuator_motion_mode = mab::MdMode_E::IDLE;
 
     /// @brief Robot control mode
     RobotControlMode_t _control_mode = RobotControlMode_t::OFF;
@@ -231,26 +269,12 @@ class ActuatorsControlNode : public rclcpp::Node {
 
     /// @brief Flag indicating if zeroing procedure should be aborted
     std::atomic<bool> _zero_abort{false};
+
+    /// @brief Timestamp of last manual control blink
+    std::chrono::steady_clock::time_point _last_manual_blink{std::chrono::steady_clock::now()};
+
+    /// @brief Error counter for CAN communication
+    size_t _can_error_count{0};
 };
 
-/// @brief Control modes for the robot
-enum class RobotControlMode_t {
-    OFF,
-    MANUAL,
-    RL_POLICY,
-    HOLD_POSITION
-};
-
-/// @brief Structure to hold MD state information
-struct ActuatorState {
-    /// @brief Position in **rad**
-    float position = 0.0f;
-    /// @brief Velocity in **rad/s**
-    float velocity = 0.0f;
-    /// @brief Torque in **Nm**
-    float torque = 0.0f;
-    /// @brief Temperature in **°C**
-    float temperature = 0.0f;
-};
-
-}  // namespace bernard
+}  // namespace Bernard
