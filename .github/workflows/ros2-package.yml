@@ -1,0 +1,26 @@
+name: ROS2 C++ Package
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    container:
+      image: ros:jazzy-ros-base
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Build
+        run: bash buildPackage.bash
+
+      - name: Test
+        run: |
+          source install/setup.bash
+          ./build/bernard_hw_if/test_actuators_node jazzy Debug
