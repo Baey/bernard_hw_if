@@ -21,11 +21,16 @@ source /opt/ros/$DISTRO/setup.bash
 # --- CMAKE BUILD TYPE ---
 if [ $# -lt 2 ]; then
     CMAKE_BUILD_TYPE="Debug"
-elif [ "$2" == "release" ]; then
-    CMAKE_BUILD_TYPE="Release"
 else
-    echo "Unknown build type: $2"
-    exit 1
+    arg=$(echo "$2" | tr '[:upper:]' '[:lower:]')
+    if [ "$arg" == "release" ]; then
+        CMAKE_BUILD_TYPE="Release"
+    elif [ "$arg" == "debug" ]; then
+        CMAKE_BUILD_TYPE="Debug"
+    else
+        echo "Unknown build type: $2"
+        exit 1
+    fi
 fi
 
 # --- BUILD ---
