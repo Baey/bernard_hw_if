@@ -25,6 +25,7 @@ jobs:
           apt-get install -y libusb-1.0-0-dev
 
       - name: Build
+        shell: bash
         run: |
           source /opt/ros/humble/setup.bash
           colcon build --executor parallel --merge-install --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
