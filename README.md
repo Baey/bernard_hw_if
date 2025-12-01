@@ -1,3 +1,6 @@
+[![BERNARD ROS2 Package Test](https://github.com/Baey/bernard_hw_if/actions/workflows/ros2-package-test.yml/badge.svg)](https://github.com/Baey/bernard_hw_if/actions/workflows/ros2-package-test.yml)
+[![Build node for arm64](https://github.com/Baey/bernard_hw_if/actions/workflows/build-arm64-node.yml/badge.svg)](https://github.com/Baey/bernard_hw_if/actions/workflows/build-arm64-node.yml)
+
 # BERNARD Hardware Interface (bernard_hw_if)
 
 ## Overview

@@ -1,0 +1,39 @@
+name: Build node for arm64
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04-arm
+
+    container:
+      image: ros:humble-ros-base
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install deps
+        run: |
+          apt-get update
+          apt-get install -y libusb-1.0-0-dev
+
+      - name: Build
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          colcon build --executor parallel --merge-install --event-handlers console_direct+ --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+
+      - name: Package install folder
+        run: |
+          tar -czf bernard_hw_if_ros2_pkg.tar.gz install/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bernard_hw_if_ros2_pkg
+          path: bernard_hw_if_ros2_pkg.tar.gz
