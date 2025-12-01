@@ -1,8 +1,6 @@
 name: Build node for arm64
 
 on:
-  pull_request:
-    branches: [ "main" ]
   push:
     branches: [ "main" ]
 
