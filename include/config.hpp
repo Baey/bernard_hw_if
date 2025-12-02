@@ -9,6 +9,18 @@
 #include <unordered_map>
 
 namespace Bernard {
+// ========= Platform Specific Configuration ======== //
+// Initial BERNARD platform specific configuration parameters.
+// These parameters should be adjusted according to the specific hardware setup. 
+
+/// @brief Number of actuators in the robot
+constexpr uint8_t ACTUATORS_NUM = 6;
+
+/// @brief Interval for blinking LEDs during zeroing routine
+constexpr std::chrono::milliseconds ZEROING_BLINK_INTERVAL = std::chrono::milliseconds(1500);
+
+/// @brief Interval for blinking LEDs during manual selection
+constexpr std::chrono::milliseconds MANUAL_SELECTION_BLINK_INTERVAL = std::chrono::milliseconds(2500);
 
 /// @brief Map MD CAN IDs to joint names
 static const std::unordered_map<int, std::string> JOINT_MAP = {
@@ -20,9 +32,15 @@ static const std::unordered_map<int, std::string> JOINT_MAP = {
     {108, "l_knee_joint"},
 };
 
+/// @brief Error threshold for CAN communication before terminating node
+constexpr size_t CAN_ERROR_THRESHOLD = 10;
+
+/// @brief All CAN IDs of actuators in the robot
 static const std::vector<uint16_t> ALL_CAN_ACTUATOR_IDS = {
-    106, 1105, 1108, 107, 1106, 108
-};
+    106, 1105, 1108, 107, 1106, 108};
+
+// ========== Joystick Configuration ========== //
+// Joystick button and axis mappings for Xbox Series controller.
 
 /// @brief Button indices for joystick messages
 constexpr int A_BTN_IDX = 0;
@@ -47,8 +65,5 @@ constexpr int RIGHT_STICK_Y_AXIS_IDX = 4;
 /// @brief Trigger axis indices for joystick messages
 constexpr int LEFT_TRIGGER_AXIS_IDX = 2;
 constexpr int RIGHT_TRIGGER_AXIS_IDX = 5;
-
-/// @brief Error threshold for CAN communication before terminating node
-constexpr size_t CAN_ERROR_THRESHOLD = 10;
 
 }  // namespace Bernard
