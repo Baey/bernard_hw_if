@@ -66,4 +66,10 @@ constexpr int RIGHT_STICK_Y_AXIS_IDX = 4;
 constexpr int LEFT_TRIGGER_AXIS_IDX = 2;
 constexpr int RIGHT_TRIGGER_AXIS_IDX = 5;
 
+// ========== Node Configuration ========== //
+/// @brief Node name
+const std::string NODE_NAME = "ActuatorsControlNode";
+const std::string LOGGER_NAME = "ActuatorsControlNode";
+constexpr float JOINT_STATE_PUBLISH_RATE_HZ = 100.0f;
+
 }  // namespace Bernard

@@ -24,7 +24,7 @@ namespace Bernard {
 
 ActuatorsControlNode::ActuatorsControlNode(
     std::unique_ptr<mab::Candle> candle, std::vector<std::unique_ptr<IActuatorDriver>>&& mds, ActuatorsControlNodeMode_t mode)
-    : Node("actuators_interface"), _candle(std::move(candle)), _mds(std::move(mds)), _count(0) {
+    : Node(NODE_NAME), _candle(std::move(candle)), _mds(std::move(mds)), _count(0) {
     if (_mds.size() != ACTUATORS_NUM) {
         RCLCPP_ERROR(this->get_logger(), "BERNARD expects %d actuators, but got %zu", ACTUATORS_NUM, _mds.size());
         throw std::runtime_error("Incorrect number of MD instances provided");

@@ -32,13 +32,13 @@ int main(int argc, char** argv) {
     // Discover and initialize MD actuators
     std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds;
     for (const auto& id : mab::MD::discoverMDs(candle.get())) {
-        RCLCPP_INFO(rclcpp::get_logger("ActuatorsNode"), "Found MD with CAN ID: %s (%u)", Bernard::mdIdToJointName(id).c_str(), id);
+        RCLCPP_INFO(rclcpp::get_logger(Bernard::LOGGER_NAME), "Found MD with CAN ID: %s (%u)", Bernard::mdIdToJointName(id).c_str(), id);
         mds.emplace_back(std::make_unique<Bernard::MDActuatorDriver>(id, candle.get()));
         mds.back()->init();
     }
 
     if (mds.size() != Bernard::ACTUATORS_NUM) {
-        RCLCPP_ERROR(rclcpp::get_logger("ActuatorsNode"), "Expected %u actuators, but found %zu. ActuatorsNode will not start.", Bernard::ACTUATORS_NUM, mds.size());
+        RCLCPP_ERROR(rclcpp::get_logger(Bernard::LOGGER_NAME), "Expected %u actuators, but found %zu. ActuatorsNode will not start.", Bernard::ACTUATORS_NUM, mds.size());
         return 1;
     }
 

@@ -176,11 +176,11 @@ class ActuatorsControlNode : public rclcpp::Node {
                 R value = f.get();
                 return std::make_optional(std::move(value));
             } catch (...) {
-                RCLCPP_ERROR(rclcpp::get_logger("ActuatorsControlNode"), "Exception while retrieving future result");
+                RCLCPP_ERROR(rclcpp::get_logger(LOGGER_NAME), "Exception while retrieving future result");
                 return std::nullopt;
             }
         } else {
-            RCLCPP_WARN(rclcpp::get_logger("ActuatorsControlNode"), "enqueueTaskWithResult timed out");
+            RCLCPP_WARN(rclcpp::get_logger(LOGGER_NAME), "enqueueTaskWithResult timed out");
             if (defaultOnTimeout.has_value()) return defaultOnTimeout;
             return std::nullopt;
         }
