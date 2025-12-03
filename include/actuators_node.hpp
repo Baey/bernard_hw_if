@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "MD.hpp"
+#include "drivers.hpp"
 #include "candle.hpp"
 #include "config.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -26,10 +27,6 @@
 #include "std_msgs/msg/float32_multi_array.hpp"
 
 namespace Bernard {
-
-constexpr uint8_t ACTUATORS_NUM = 6;
-constexpr std::chrono::milliseconds ZEROING_BLINK_INTERVAL = std::chrono::milliseconds(1500);
-constexpr std::chrono::milliseconds MANUAL_SELECTION_BLINK_INTERVAL = std::chrono::milliseconds(2500);
 
 /// @brief Control modes for the robot
 enum class RobotControlMode_t {
@@ -68,7 +65,7 @@ class ActuatorsControlNode : public rclcpp::Node {
      */
     ActuatorsControlNode(
         std::unique_ptr<mab::Candle> candle,
-        std::vector<mab::MD>&& mds,
+        std::vector<std::unique_ptr<IActuatorDriver>>&& mds,
         ActuatorsControlNodeMode_t mode = ActuatorsControlNodeMode_t::FULL);
 
     /**
@@ -193,7 +190,7 @@ class ActuatorsControlNode : public rclcpp::Node {
     std::unique_ptr<mab::Candle> _candle{nullptr};
 
     /// @brief Reference to vector of MD instances
-    std::vector<mab::MD> _mds;
+    std::vector<std::unique_ptr<IActuatorDriver>> _mds;
 
     /// @brief Vector to hold MD state information
     std::vector<ActuatorState> _md_states;

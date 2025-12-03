@@ -5,6 +5,7 @@
 
 #include "MD.hpp"
 #include "actuators_node.hpp"
+#include "drivers.hpp"
 #include "candle.hpp"
 #include "config.hpp"
 #include "utils.hpp"
@@ -29,11 +30,11 @@ int main(int argc, char** argv) {
         mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, mab::candleTypes::busTypes_t::USB));
 
     // Discover and initialize MD actuators
-    std::vector<mab::MD> mds;
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds;
     for (const auto& id : mab::MD::discoverMDs(candle.get())) {
         RCLCPP_INFO(rclcpp::get_logger("ActuatorsNode"), "Found MD with CAN ID: %s (%u)", Bernard::mdIdToJointName(id).c_str(), id);
-        mds.emplace_back(id, candle.get());
-        mds.back().init();
+        mds.emplace_back(std::make_unique<Bernard::MDActuatorDriver>(id, candle.get()));
+        mds.back()->init();
     }
 
     if (mds.size() != Bernard::ACTUATORS_NUM) {
