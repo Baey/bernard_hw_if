@@ -157,10 +157,12 @@ if(BUILD_TESTING)
     add_executable(test_actuators_node
         ${TESTS_DIR}/test_actuators_node.cpp
         ${TESTS_DIR}/mockups/MockResponder.cpp
+        ${TESTS_DIR}/utils/test_nodes.cpp
     )
 
     target_include_directories(test_actuators_node PUBLIC
         $<BUILD_INTERFACE:${TESTS_DIR}/mockups>
+        $<BUILD_INTERFACE:${TESTS_DIR}/utils>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/CANdle-SDK/commons/shared_data>
     )
 

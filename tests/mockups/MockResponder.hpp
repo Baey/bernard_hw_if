@@ -69,3 +69,21 @@ class MockResponder {
     std::atomic<size_t> m_counter{0};
     bool m_autoPad = true;
 };
+
+#define CANDLE_MOCK_RESPONDER_INIT(bus, response)        \
+    do {                                                  \
+        EXPECT_CALL(*(bus), connect())                   \
+            .Times(1)                                     \
+            .WillOnce(Return(mab::I_CommunicationInterface::OK)); \
+                                                          \
+        EXPECT_CALL(*(bus), disconnect())                \
+            .Times(2)                                     \
+            .WillRepeatedly(Return(mab::I_CommunicationInterface::OK)); \
+                                                          \
+        EXPECT_CALL(*(bus), transfer(_, _, _))            \
+            .Times(1)                                     \
+            .WillOnce(Return(                             \
+                std::make_pair((response),                \
+                mab::I_CommunicationInterface::OK)));     \
+    } while (0)
+

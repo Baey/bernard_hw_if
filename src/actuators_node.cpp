@@ -24,7 +24,7 @@ namespace Bernard {
 
 ActuatorsControlNode::ActuatorsControlNode(
     std::unique_ptr<mab::Candle> candle, std::vector<std::unique_ptr<IActuatorDriver>>&& mds, ActuatorsControlNodeMode_t mode)
-    : Node("actuators_interface"), _candle(std::move(candle)), _mds(std::move(mds)), _count(0) {
+    : Node(NODE_NAME), _candle(std::move(candle)), _mds(std::move(mds)), _count(0) {
     if (_mds.size() != ACTUATORS_NUM) {
         RCLCPP_ERROR(this->get_logger(), "BERNARD expects %d actuators, but got %zu", ACTUATORS_NUM, _mds.size());
         throw std::runtime_error("Incorrect number of MD instances provided");
@@ -49,17 +49,17 @@ ActuatorsControlNode::ActuatorsControlNode(
 
     if (mode == ActuatorsControlNodeMode_t::FULL) {
         _action_subscriber = this->create_subscription<std_msgs::msg::Float32MultiArray>(
-            "actions", 10,
+            POLICY_ACTIONS_TOPIC_NAME, 10,
             std::bind(&ActuatorsControlNode::command_callback, this, std::placeholders::_1));
     }
     if (mode == ActuatorsControlNodeMode_t::FULL || mode == ActuatorsControlNodeMode_t::PUB_WITH_JOY) {
         _joy_subscriber = this->create_subscription<sensor_msgs::msg::Joy>(
-            "joy", 10,
+            JOYSTICK_TOPIC_NAME, 10,
             std::bind(&ActuatorsControlNode::joy_callback, this, std::placeholders::_1));
     }
 
-    _state_timer = this->create_wall_timer(10ms, std::bind(&ActuatorsControlNode::publish_joint_states, this));
-    _temp_timer = this->create_wall_timer(5000ms, std::bind(&ActuatorsControlNode::publish_joint_temperatures, this));
+    _state_timer = this->create_wall_timer(std::chrono::duration<float>(1.0f / JOINT_STATE_PUBLISH_RATE_HZ), std::bind(&ActuatorsControlNode::publish_joint_states, this));
+    _temp_timer = this->create_wall_timer(std::chrono::duration<float>(1.0f / JOINT_MOSFET_TEMP_PUBLISH_RATE_HZ), std::bind(&ActuatorsControlNode::publish_joint_temperatures, this));
     _md_states.resize(_mds.size());
     // Ensure last_joy_msg is a valid shared_ptr to avoid deref before first message
     _last_joy_msg = std::make_shared<sensor_msgs::msg::Joy>();
@@ -88,6 +88,7 @@ void ActuatorsControlNode::enqueueTask(std::function<void()> task) {
 void ActuatorsControlNode::canWorkerLoop() {
     using namespace std::chrono;
     auto next_poll = steady_clock::now();
+    auto next_temp_poll = steady_clock::now();
 
     while (!_worker_stop.load()) {
         // wait for either a command or poll interval
@@ -116,14 +117,7 @@ void ActuatorsControlNode::canWorkerLoop() {
         lk.unlock();
 
         if (steady_clock::now() >= next_poll) {
-            mab::MDRegisters_S registerBuffer;
             for (size_t i = 0; i < _mds.size(); ++i) {
-                auto temp_pair = _mds[i]->getMosfetTemperature();
-                if (temp_pair.second != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "readRegisters failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(temp_pair.second));
-                    continue;
-                }
-
                 auto pos_pair = _mds[i]->getPosition();
                 if (pos_pair.second != mab::MD::Error_t::OK) {
                     RCLCPP_WARN(this->get_logger(), "getPosition failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(pos_pair.second));
@@ -145,10 +139,28 @@ void ActuatorsControlNode::canWorkerLoop() {
                     _md_states[i].position = pos_pair.first;
                     _md_states[i].velocity = vel_pair.first;
                     _md_states[i].torque = torque_pair.first;
-                    _md_states[i].temperature = temp_pair.first;
                 }
             }
-            next_poll = steady_clock::now() + std::chrono::milliseconds(_poll_interval_ms);
+
+            next_poll = steady_clock::now() + _temp_poll_interval_ms;
+
+            if (steady_clock::now() >= next_temp_poll) {
+                mab::MDRegisters_S registerBuffer;
+                for (size_t i = 0; i < _mds.size(); ++i) {
+                    auto temp_pair = _mds[i]->getMosfetTemperature();
+                    if (temp_pair.second != mab::MD::Error_t::OK) {
+                        RCLCPP_WARN(this->get_logger(), "readRegisters failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(temp_pair.second));
+                        continue;
+                    }
+                    
+                    {
+                        std::lock_guard<std::mutex> st_lk(_state_mutex);
+                        _md_states[i].temperature = temp_pair.first;
+                    }
+                }
+
+                next_temp_poll = steady_clock::now() + _temp_poll_interval_ms;
+            }
         }
 
         // Manual-mode: periodic blink of selected actuator
@@ -558,6 +570,9 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
         _last_joy_msg = msg;
         return;
     }
+
+    _last_joy_msg = msg;
+    return;
 }
 
 void ActuatorsControlNode::command_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg) {

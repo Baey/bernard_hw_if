@@ -66,4 +66,16 @@ constexpr int RIGHT_STICK_Y_AXIS_IDX = 4;
 constexpr int LEFT_TRIGGER_AXIS_IDX = 2;
 constexpr int RIGHT_TRIGGER_AXIS_IDX = 5;
 
+// ========== Node Configuration ========== //
+/// @brief Node name
+const std::string NODE_NAME = "ActuatorsControlNode";
+const std::string LOGGER_NAME = "ActuatorsControlNode";
+const std::string POLICY_ACTIONS_TOPIC_NAME = "actions";
+const std::string JOINT_STATES_TOPIC_NAME = "joint_states";
+const std::string DRIVER_TEMPERATURES_TOPIC_NAME = "driver_temperatures";
+const std::string JOYSTICK_TOPIC_NAME = "joy";
+constexpr float JOINT_STATE_PUBLISH_RATE_HZ = 100.0f;
+constexpr float JOINT_MOSFET_TEMP_PUBLISH_RATE_HZ = 1.0f;
+
+
 }  // namespace Bernard
