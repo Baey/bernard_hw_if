@@ -18,9 +18,9 @@
 #include <vector>
 
 #include "MD.hpp"
-#include "drivers.hpp"
 #include "candle.hpp"
 #include "config.hpp"
+#include "drivers.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
@@ -223,7 +223,7 @@ class ActuatorsControlNode : public rclcpp::Node {
     RobotControlMode_t _control_mode = RobotControlMode_t::OFF;
 
     /// @brief Manual control selected motor index
-    size_t _manual_control_actuator_idx = 0;
+    size_t _manual_control_actuator_idx{0};
 
     /// @brief Stored joystick message
     sensor_msgs::msg::Joy::SharedPtr _last_joy_msg{nullptr};
@@ -249,8 +249,11 @@ class ActuatorsControlNode : public rclcpp::Node {
     /// @brief Flag to stop the worker thread
     std::atomic<bool> _worker_stop{false};
 
-    /// @brief Polling interval for the worker thread
-    std::chrono::milliseconds _poll_interval_ms{10};
+    /// @brief Polling interval for the worker thread (joint states)
+    std::chrono::milliseconds _poll_interval_ms{static_cast<int>(1000.0f / JOINT_STATE_PUBLISH_RATE_HZ)};
+
+    /// @brief Polling interval for the worker thread (joint temperatures)
+    std::chrono::milliseconds _temp_poll_interval_ms{static_cast<int>(1000.0f / JOINT_MOSFET_TEMP_PUBLISH_RATE_HZ)};
 
     /// @brief Mutex for zeroing procedure synchronization
     std::mutex _zero_mutex;

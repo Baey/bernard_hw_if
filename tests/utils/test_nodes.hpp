@@ -34,3 +34,19 @@ class TestSubscriber : public rclcpp::Node {
     std::shared_ptr<T> _last_msg{nullptr};
     std::atomic<size_t> _message_count{0};
 };
+
+template <typename T>
+class TestPublisher : public rclcpp::Node {
+   public:
+    TestPublisher(std::string node_name = "test_publisher", std::string topic_name = "test_topic");
+
+    void publish(const typename T::SharedPtr msg);
+
+    void publishEvery(const typename T::SharedPtr msg, std::chrono::milliseconds interval, std::chrono::seconds duration);
+
+   private:
+    rclcpp::Publisher<T>::SharedPtr _pub;
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    rclcpp::TimerBase::SharedPtr _timer;
+};

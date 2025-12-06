@@ -16,7 +16,7 @@ template <typename T>
 void TestSubscriber<T>::callback(const typename T::SharedPtr msg) {
     std::lock_guard<std::mutex> lk(_mutex);
     _last_msg = msg;
-    _message_count++;
+    _message_count.fetch_add(1, std::memory_order_acq_rel);
     _cv.notify_all();
 }
 
@@ -52,3 +52,38 @@ float TestSubscriber<T>::measurePubRate(std::chrono::seconds duration) {
 // Explicit template instantiation for used message types
 template class TestSubscriber<sensor_msgs::msg::JointState>;
 template class TestSubscriber<std_msgs::msg::Float32MultiArray>;
+
+template <typename T>
+TestPublisher<T>::TestPublisher(std::string node_name, std::string topic_name) : Node(node_name) {
+    _pub = this->create_publisher<T>(topic_name, 10);
+}
+
+template <typename T>
+void TestPublisher<T>::publish(const typename T::SharedPtr msg) {
+    // msg->header.stamp = this->now();
+    _pub->publish(*msg);
+}
+
+template <typename T>
+void TestPublisher<T>::publishEvery(const typename T::SharedPtr msg, std::chrono::milliseconds interval, std::chrono::seconds duration) {
+    auto iterations = std::make_shared<size_t>(
+        static_cast<size_t>(duration.count() * 1000 / interval.count())
+    );
+
+    _timer = this->create_wall_timer(
+        interval,
+        [this, msg, iterations]() {
+            if (*iterations == 0) {
+                this->_timer->cancel();
+                return;
+            }
+
+            this->publish(msg);
+            --(*iterations);
+        }
+    );
+}
+
+// Explicit template instantiation for used message types
+template class TestPublisher<sensor_msgs::msg::Joy>;
+template class TestPublisher<std_msgs::msg::Float32MultiArray>;

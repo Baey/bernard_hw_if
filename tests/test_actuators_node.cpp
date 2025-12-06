@@ -25,7 +25,7 @@ using ::testing::AtLeast;
 using ::testing::Invoke;
 using ::testing::Return;
 
-const std::vector<u8> mockReponse = {0x0,  // header
+const std::vector<u8> mockResponse = {0x0,  // header
                                      0x01,
                                      0xA0,  // payload
                                      0x00};
@@ -51,15 +51,7 @@ TEST_F(ActuatorsNodeTest, ConstructorStartStopWorker) {
     auto m_bus = std::make_unique<MockBus>();
     MockBus* m_debugBus = m_bus.get();
 
-    EXPECT_CALL(*m_debugBus, connect())
-        .Times(1)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, disconnect())
-        .Times(2)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, transfer(_, _, _))
-        .Times(1)
-        .WillRepeatedly(Return(std::make_pair(mockReponse, mab::I_CommunicationInterface::Error_t::OK)));
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
 
     auto m_candle = std::unique_ptr<mab::Candle>(
         mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
@@ -109,15 +101,7 @@ TEST_F(ActuatorsNodeTest, CheckMDStatePublishingBasic) {
     auto m_bus = std::make_unique<MockBus>();
     MockBus* m_debugBus = m_bus.get();
 
-    EXPECT_CALL(*m_debugBus, connect())
-        .Times(1)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, disconnect())
-        .Times(2)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, transfer(_, _, _))
-        .Times(1)
-        .WillRepeatedly(Return(std::make_pair(mockReponse, mab::I_CommunicationInterface::Error_t::OK)));
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
 
     auto m_candle = std::unique_ptr<mab::Candle>(
         mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
@@ -165,15 +149,7 @@ TEST_F(ActuatorsNodeTest, CheckMDStatePublishingRate) {
     auto m_bus = std::make_unique<MockBus>();
     MockBus* m_debugBus = m_bus.get();
 
-    EXPECT_CALL(*m_debugBus, connect())
-        .Times(1)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, disconnect())
-        .Times(2)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, transfer(_, _, _))
-        .Times(1)
-        .WillRepeatedly(Return(std::make_pair(mockReponse, mab::I_CommunicationInterface::Error_t::OK)));
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
 
     auto m_candle = std::unique_ptr<mab::Candle>(
         mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
@@ -196,6 +172,11 @@ TEST_F(ActuatorsNodeTest, CheckMDStatePublishingRate) {
 
         float rate = subscriber->measurePubRate(std::chrono::seconds(2));
 
+        executor.cancel();
+        if (spinner_thread.joinable()) {
+            spinner_thread.join();
+        }
+
         EXPECT_GE(rate, Bernard::JOINT_STATE_PUBLISH_RATE_HZ - 3.0f);
         EXPECT_LE(rate, Bernard::JOINT_STATE_PUBLISH_RATE_HZ + 3.0f);
     }
@@ -207,15 +188,7 @@ TEST_F(ActuatorsNodeTest, CheckMDStateTempBasic) {
     auto m_bus = std::make_unique<MockBus>();
     MockBus* m_debugBus = m_bus.get();
 
-    EXPECT_CALL(*m_debugBus, connect())
-        .Times(1)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, disconnect())
-        .Times(2)
-        .WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
-    EXPECT_CALL(*m_debugBus, transfer(_, _, _))
-        .Times(1)
-        .WillRepeatedly(Return(std::make_pair(mockReponse, mab::I_CommunicationInterface::Error_t::OK)));
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
 
     auto m_candle = std::unique_ptr<mab::Candle>(
         mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
@@ -247,6 +220,173 @@ TEST_F(ActuatorsNodeTest, CheckMDStateTempBasic) {
         EXPECT_EQ(msg->data.size(), Bernard::ACTUATORS_NUM);
         for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
             EXPECT_FLOAT_EQ(msg->data[i], 30.0f + i);
+        }
+    }
+
+    SUCCEED();
+}
+
+TEST_F(ActuatorsNodeTest, CheckMDStateTempBasicRate) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+
+    {
+        auto subscriber = std::make_shared<TestSubscriber<std_msgs::msg::Float32MultiArray>>("test_sub", "driver_temperatures");
+        auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds));
+
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
+        executor.add_node(subscriber);
+        std::thread spinner_thread([&]() {
+            executor.spin();
+        });
+
+        float rate = subscriber->measurePubRate(std::chrono::seconds(5));
+        
+        executor.cancel();
+        if (spinner_thread.joinable()) {
+            spinner_thread.join();
+        }
+
+        EXPECT_GE(rate, Bernard::JOINT_MOSFET_TEMP_PUBLISH_RATE_HZ - 0.3f);
+        EXPECT_LE(rate, Bernard::JOINT_MOSFET_TEMP_PUBLISH_RATE_HZ + 0.3f);
+    }
+
+    SUCCEED();
+}
+
+TEST_F(ActuatorsNodeTest, JoyInputEnableDisableDrivers) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+
+    {
+        auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds), Bernard::ActuatorsControlNodeMode_t::PUB_WITH_JOY);
+        auto publisher = std::make_shared<TestPublisher<sensor_msgs::msg::Joy>>("test_joy_pub", "joy");
+
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
+        executor.add_node(publisher);
+        std::thread spinner_thread([&]() {
+            executor.spin();
+        });
+
+        // Publish neutral joystick message
+        sensor_msgs::msg::Joy joy_msg;
+        joy_msg.buttons.resize(15, 0);
+        joy_msg.axes.resize(8, 0.0f);
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        // Publish enable actuators joystick message
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 1;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::HOLD_POSITION);
+
+        // Publish disable actuators joystick message
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 0;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 0;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 1;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::OFF);
+
+        executor.cancel();
+        if (spinner_thread.joinable()) {
+            spinner_thread.join();
+        }
+    }
+
+    SUCCEED();
+}
+
+TEST_F(ActuatorsNodeTest, JoyInputToggleMotionMode) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+
+    {
+        auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds), Bernard::ActuatorsControlNodeMode_t::PUB_WITH_JOY);
+        auto publisher = std::make_shared<TestPublisher<sensor_msgs::msg::Joy>>("test_joy_pub", "joy");
+
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
+        executor.add_node(publisher);
+        std::thread spinner_thread([&]() {
+            executor.spin();
+        });
+
+        // Publish neutral joystick message
+        sensor_msgs::msg::Joy joy_msg;
+        joy_msg.buttons.resize(15, 0);
+        joy_msg.axes.resize(8, 0.0f);
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        // Publish enable actuators joystick message
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 1;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::HOLD_POSITION);
+
+        // Publish change motion mode joystick message
+        joy_msg.buttons[Bernard::X_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        joy_msg.buttons[Bernard::X_BTN_IDX] = 0;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::MANUAL);
+
+        joy_msg.buttons[Bernard::X_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        joy_msg.buttons[Bernard::X_BTN_IDX] = 0;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::HOLD_POSITION);
+
+        executor.cancel();
+        if (spinner_thread.joinable()) {
+            spinner_thread.join();
         }
     }
 
