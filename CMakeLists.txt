@@ -156,7 +156,8 @@ if(BUILD_TESTING)
 
     add_executable(test_actuators_node
         ${TESTS_DIR}/test_actuators_node.cpp
-        ${TESTS_DIR}/mockups/MockResponder.cpp
+        ${TESTS_DIR}/mockups/mock_responder.cpp
+        ${TESTS_DIR}/mockups/mock_driver.cpp
         ${TESTS_DIR}/utils/test_nodes.cpp
     )
 
