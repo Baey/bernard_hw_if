@@ -3,7 +3,7 @@
 //
 // SPDX-License-Identifier: BSD-3-Clause
 
-#include "MockResponder.hpp"
+#include "mock_responder.hpp"
 
 #include <algorithm>
 #include <cstring>

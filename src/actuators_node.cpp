@@ -88,7 +88,7 @@ void ActuatorsControlNode::enqueueTask(std::function<void()> task) {
 void ActuatorsControlNode::canWorkerLoop() {
     using namespace std::chrono;
     auto next_poll = steady_clock::now();
-    auto next_temp_poll = steady_clock::now();
+    auto next_temp_poll = next_poll;
 
     while (!_worker_stop.load()) {
         // wait for either a command or poll interval
@@ -142,25 +142,25 @@ void ActuatorsControlNode::canWorkerLoop() {
                 }
             }
 
-            next_poll = steady_clock::now() + _temp_poll_interval_ms;
+            next_poll = steady_clock::now() + _poll_interval_ms;
+        }
 
-            if (steady_clock::now() >= next_temp_poll) {
-                mab::MDRegisters_S registerBuffer;
-                for (size_t i = 0; i < _mds.size(); ++i) {
-                    auto temp_pair = _mds[i]->getMosfetTemperature();
-                    if (temp_pair.second != mab::MD::Error_t::OK) {
-                        RCLCPP_WARN(this->get_logger(), "readRegisters failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(temp_pair.second));
-                        continue;
-                    }
-                    
-                    {
-                        std::lock_guard<std::mutex> st_lk(_state_mutex);
-                        _md_states[i].temperature = temp_pair.first;
-                    }
+        if (steady_clock::now() >= next_temp_poll) {
+            mab::MDRegisters_S registerBuffer;
+            for (size_t i = 0; i < _mds.size(); ++i) {
+                auto temp_pair = _mds[i]->getMosfetTemperature();
+                if (temp_pair.second != mab::MD::Error_t::OK) {
+                    RCLCPP_WARN(this->get_logger(), "readRegisters failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(temp_pair.second));
+                    continue;
                 }
-
-                next_temp_poll = steady_clock::now() + _temp_poll_interval_ms;
+                
+                {
+                    std::lock_guard<std::mutex> st_lk(_state_mutex);
+                    _md_states[i].temperature = temp_pair.first;
+                }
             }
+
+            next_temp_poll = steady_clock::now() + _temp_poll_interval_ms;
         }
 
         // Manual-mode: periodic blink of selected actuator
@@ -545,27 +545,27 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
             return;
         }
 
-        float delta_pos = 0.0f;
-        if (right_trigger > 0.05f) {
-            delta_pos = right_trigger;  // move forward
-        } else if (left_trigger > 0.05f) {
-            delta_pos = -left_trigger;  // move backward
-        }
-        float command_value = delta_pos * 0.1f;  // scale down for fine control
+        // Update command only trigger value has changed
+        if (right_trigger != safePrevAxis(RIGHT_TRIGGER_AXIS_IDX) || left_trigger != safePrevAxis(LEFT_TRIGGER_AXIS_IDX)) {
+            float delta_pos = 0.0f;
+            delta_pos += right_trigger;  // move forward
+            delta_pos -= left_trigger;  // move backward
+            float command_value = delta_pos * 0.1f;  // scale down for fine control
 
-        // enqueue task that applies command to selected MD
-        enqueueTask([this, idx = _manual_control_actuator_idx, val = command_value]() {
-            try {
-                float current_pos = _md_states[idx].position;
-                float target_pos = current_pos + val;
-                mab::MD::Error_t r = _mds[idx]->setTargetPosition(target_pos);
-                if (r != mab::MD::Error_t::OK) {
-                    RCLCPP_ERROR(this->get_logger(), "Failed to set manual position command for MD %d (CAN %d): %d", (int)idx, _mds[idx]->getCanId(), static_cast<int>(r));
+            // enqueue task that applies command to selected MD
+            enqueueTask([this, idx = _manual_control_actuator_idx, val = command_value]() {
+                try {
+                    float current_pos = _md_states[idx].position;
+                    float target_pos = current_pos + val;
+                    mab::MD::Error_t r = _mds[idx]->setTargetPosition(target_pos);
+                    if (r != mab::MD::Error_t::OK) {
+                        RCLCPP_ERROR(this->get_logger(), "Failed to set manual position command for MD %d (CAN %d): %d", (int)idx, _mds[idx]->getCanId(), static_cast<int>(r));
+                    }
+                } catch (...) {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to apply manual command to MD %d", (int)idx);
                 }
-            } catch (...) {
-                RCLCPP_ERROR(this->get_logger(), "Failed to apply manual command to MD %d", (int)idx);
-            }
-        });
+            });
+        }
 
         _last_joy_msg = msg;
         return;
