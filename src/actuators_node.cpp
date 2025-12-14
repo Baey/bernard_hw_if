@@ -353,7 +353,7 @@ void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
         case RobotControlMode_t::MANUAL:
         case RobotControlMode_t::HOLD_POSITION:
             // ensure controllers are in position mode and set current position as target
-            enqueueTask([this, &act_mode]() {
+            enqueueTask([this, act_mode]() {
                 if (act_mode != mab::MdMode_E::POSITION_PID) {
                     for (size_t i = 0; i < _mds.size(); ++i) {
                         // switch to position control
