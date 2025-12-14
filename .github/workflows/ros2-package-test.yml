@@ -7,11 +7,11 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
+  build-and-test-x86:
+    runs-on: ubuntu-22.04
 
     container:
-      image: ros:jazzy-ros-base
+      image: ros:humble-ros-base
 
     steps:
       - name: Checkout
@@ -25,7 +25,33 @@ jobs:
           apt-get install -y libusb-1.0-0-dev
 
       - name: Build
-        run: bash buildPackage.bash jazzy Debug
+        run: bash buildPackage.bash humble Debug
+
+      - name: Test
+        shell: bash
+        run: |
+          source install/setup.bash
+          ./build/bernard_hw_if/test_actuators_node
+
+  build-and-test-arm64:
+    runs-on: ubuntu-22.04-arm
+
+    container:
+      image: ros:humble-ros-base
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install deps
+        run: |
+          apt-get update
+          apt-get install -y libusb-1.0-0-dev
+      
+      - name: Build
+        run: bash buildPackage.bash humble Debug
 
       - name: Test
         shell: bash
