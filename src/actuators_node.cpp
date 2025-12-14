@@ -341,6 +341,10 @@ void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
     switch (mode) {
         case RobotControlMode_t::OFF:
             if (act_mode == mab::MdMode_E::IDLE) return;
+            {
+                std::lock_guard<std::mutex> lk(_act_mode_mutex);
+                _actuator_motion_mode = mab::MdMode_E::IDLE;
+            }
             enqueueTask([this]() {
                 for (auto& md : _mds) {
                     mab::MD::Error_t r = md->setMotionMode(mab::MdMode_E::IDLE);
@@ -352,15 +356,18 @@ void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
             break;
         case RobotControlMode_t::MANUAL:
         case RobotControlMode_t::HOLD_POSITION:
+            if (act_mode == mab::MdMode_E::POSITION_PID) return;
+            {
+                std::lock_guard<std::mutex> lk(_act_mode_mutex);
+                _actuator_motion_mode = mab::MdMode_E::POSITION_PID;
+            }
             // ensure controllers are in position mode and set current position as target
-            enqueueTask([this, act_mode]() {
-                if (act_mode != mab::MdMode_E::POSITION_PID) {
-                    for (size_t i = 0; i < _mds.size(); ++i) {
-                        // switch to position control
-                        mab::MD::Error_t r = _mds[i]->setMotionMode(mab::MdMode_E::POSITION_PID);
-                        if (r != mab::MD::Error_t::OK) {
-                            RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to POSITION_PID: %d", _mds[i]->getCanId(), static_cast<int>(r));
-                        }
+            enqueueTask([this]() {
+                for (size_t i = 0; i < _mds.size(); ++i) {
+                    // switch to position control
+                    mab::MD::Error_t r = _mds[i]->setMotionMode(mab::MdMode_E::POSITION_PID);
+                    if (r != mab::MD::Error_t::OK) {
+                        RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to POSITION_PID: %d", _mds[i]->getCanId(), static_cast<int>(r));
                     }
                 }
 
@@ -383,6 +390,10 @@ void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
         case RobotControlMode_t::RL_POLICY:
             // policy uses torque control
             if (act_mode == mab::MdMode_E::RAW_TORQUE) return;
+            {
+                std::lock_guard<std::mutex> lk(_act_mode_mutex);
+                _actuator_motion_mode = mab::MdMode_E::RAW_TORQUE;
+            }
             enqueueTask([this]() {
                 for (auto& md : _mds) {
                     mab::MD::Error_t r = md->setMotionMode(mab::MdMode_E::RAW_TORQUE);
@@ -397,6 +408,7 @@ void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
             RCLCPP_ERROR(this->get_logger(), "Unknown target robot control mode: %s", robotControlModeToString(mode).c_str());
             break;
     }
+
     return;
 }
 
