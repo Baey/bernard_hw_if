@@ -8,6 +8,7 @@
 #include "MD.hpp"
 #include "actuators_node.hpp"
 #include "candle.hpp"
+#include "types.hpp"
 
 /** @brief Convert MD motion mode enum to string
  * @param mode Motion mode enum value

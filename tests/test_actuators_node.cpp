@@ -20,6 +20,7 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "test_nodes.hpp"
 #include "utils.hpp"
+#include "types.hpp"
 
 using ::testing::_;
 using ::testing::AtLeast;
@@ -608,6 +609,70 @@ TEST_F(ActuatorsNodeTest, ReadPolicyActionsAndPublishState) {
         
         EXPECT_GE(rate, Bernard::JOINT_STATE_PUBLISH_RATE_HZ - 3.0f);
         EXPECT_LE(rate, Bernard::JOINT_STATE_PUBLISH_RATE_HZ + 3.0f);
+    }
+
+    SUCCEED();
+}
+
+TEST_F(ActuatorsNodeTest, ZeroEncodersAbortProcedure) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(0));
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(0));
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, blink(), ::testing::Exactly(0));
+
+    {
+        auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds), Bernard::ActuatorsControlNodeMode_t::PUB_WITH_JOY);
+        auto publisher = std::make_shared<TestPublisher<sensor_msgs::msg::Joy>>("test_joy_pub", "joy");
+
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
+        executor.add_node(publisher);
+        std::thread spinner_thread([&]() {
+            executor.spin();
+        });
+
+        // Publish neutral joystick message
+        sensor_msgs::msg::Joy joy_msg;
+        joy_msg.buttons.resize(15, 0);
+        joy_msg.axes.resize(8, 0.0f);
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        // Publish enable actuators joystick message
+        joy_msg.buttons[Bernard::Y_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::ZERO_ENCODERS);
+
+        // Publish abort joystick message
+        joy_msg.buttons[Bernard::START_BTN_IDX] = 1;
+        joy_msg.buttons[Bernard::Y_BTN_IDX] = 0;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::OFF);
+
+        executor.cancel();
+        if (spinner_thread.joinable()) {
+            spinner_thread.join();
+        }
     }
 
     SUCCEED();

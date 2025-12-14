@@ -25,35 +25,9 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "sensor_msgs/msg/joy.hpp"
 #include "std_msgs/msg/float32_multi_array.hpp"
+#include "types.hpp"
 
 namespace Bernard {
-
-/// @brief Control modes for the robot
-enum class RobotControlMode_t {
-    OFF,
-    MANUAL,
-    RL_POLICY,
-    HOLD_POSITION
-};
-
-/// @brief Structure to hold MD state information
-struct ActuatorState {
-    /// @brief Position in **rad**
-    float position = 0.0f;
-    /// @brief Velocity in **rad/s**
-    float velocity = 0.0f;
-    /// @brief Torque in **Nm**
-    float torque = 0.0f;
-    /// @brief Temperature in **°C**
-    float temperature = 0.0f;
-};
-
-/// @brief Modes for ActuatorsControlNode
-enum class ActuatorsControlNodeMode_t {
-    FULL,
-    PUB_ONLY,
-    PUB_WITH_JOY
-};
 
 class ActuatorsControlNode : public rclcpp::Node {
    public:
@@ -236,6 +210,12 @@ class ActuatorsControlNode : public rclcpp::Node {
 
     /// @brief Worker thread and task queue
     std::mutex _cmd_mutex;
+
+    /// @brief Mutex for robot control mode variable
+    std::mutex _ctrl_mode_mutex;
+
+    /// @brief Mutex for actuator motion mode variable
+    std::mutex _act_mode_mutex;
 
     /// @brief Condition variable to signal the worker thread
     std::condition_variable _cmd_cv;
