@@ -135,7 +135,7 @@ void ActuatorsControlNode::canWorkerLoop() {
                 }
 
                 {
-                    std::lock_guard<std::mutex> st_lk(_state_mutex);
+                    std::lock_guard<std::mutex> lk(_state_mutex);
                     _md_states[i].position = pos_pair.first;
                     _md_states[i].velocity = vel_pair.first;
                     _md_states[i].torque = torque_pair.first;
@@ -153,7 +153,7 @@ void ActuatorsControlNode::canWorkerLoop() {
                     RCLCPP_WARN(this->get_logger(), "readRegisters failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(temp_pair.second));
                     continue;
                 }
-                
+
                 {
                     std::lock_guard<std::mutex> st_lk(_state_mutex);
                     _md_states[i].temperature = temp_pair.first;
@@ -164,7 +164,12 @@ void ActuatorsControlNode::canWorkerLoop() {
         }
 
         // Manual-mode: periodic blink of selected actuator
-        if (_control_mode == RobotControlMode_t::MANUAL) {
+        RobotControlMode_t mode;
+        {
+            std::lock_guard<std::mutex> lk(_ctrl_mode_mutex);
+            mode = _control_mode;
+        }
+        if (mode == RobotControlMode_t::MANUAL) {
             auto now = steady_clock::now();
             if (now - _last_manual_blink >= MANUAL_SELECTION_BLINK_INTERVAL) {
                 try {
@@ -286,12 +291,18 @@ mab::MD::Error_t ActuatorsControlNode::zeroEncodersWork() {
         _zero_waiting.store(false);
         _zero_abort.store(false);
     }
+
+    setRobotControlMode(RobotControlMode_t::OFF);
+    
     return overall;
 }
 
 mab::MD::Error_t ActuatorsControlNode::setActuatorsMotionMode(const mab::MdMode_E mode) {
     RCLCPP_INFO(this->get_logger(), "Changing motion mode of all actuators to: %s", motionModeToString(mode).c_str());
-    _actuator_motion_mode = mode;
+    {
+        std::lock_guard<std::mutex> lk(_act_mode_mutex);
+        _actuator_motion_mode = mode;
+    }
 
     auto work = [this, mode]() -> mab::MD::Error_t {
         mab::MD::Error_t result = mab::MD::Error_t::OK;
@@ -314,66 +325,91 @@ mab::MD::Error_t ActuatorsControlNode::setActuatorsMotionMode(const mab::MdMode_
 }
 
 void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
-    _control_mode = mode;
+    {
+        std::lock_guard<std::mutex> lk(_ctrl_mode_mutex);
+        _control_mode = mode;
+    }
+
+    mab::MdMode_E act_mode;
+    {
+        std::lock_guard<std::mutex> lk(_act_mode_mutex);
+        act_mode = _actuator_motion_mode;
+    }
 
     // Schedule worker actions for mode transitions. All direct communication with MDs
     // must happen from the worker thread, so enqueueTask is used.
-    if (mode == RobotControlMode_t::OFF) {
-        enqueueTask([this]() {
-            for (auto& md : _mds) {
-                mab::MD::Error_t r = md->setMotionMode(mab::MdMode_E::IDLE);
-                if (r != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to IDLE: %d", md->getCanId(), static_cast<int>(r));
-                }
+    switch (mode) {
+        case RobotControlMode_t::OFF:
+            if (act_mode == mab::MdMode_E::IDLE) return;
+            {
+                std::lock_guard<std::mutex> lk(_act_mode_mutex);
+                _actuator_motion_mode = mab::MdMode_E::IDLE;
             }
-        });
-    } else if (mode == RobotControlMode_t::HOLD_POSITION) {
-        // ensure controllers are in position mode and set current position as target
-        enqueueTask([this]() {
-            for (size_t i = 0; i < _mds.size(); ++i) {
-                // switch to position control
-                mab::MD::Error_t r = _mds[i]->setMotionMode(mab::MdMode_E::POSITION_PID);
-                if (r != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to POSITION_PID: %d", _mds[i]->getCanId(), static_cast<int>(r));
+            enqueueTask([this]() {
+                for (auto& md : _mds) {
+                    mab::MD::Error_t r = md->setMotionMode(mab::MdMode_E::IDLE);
+                    if (r != mab::MD::Error_t::OK) {
+                        RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to IDLE: %d", md->getCanId(), static_cast<int>(r));
+                    }
                 }
+            });
+            break;
+        case RobotControlMode_t::MANUAL:
+        case RobotControlMode_t::HOLD_POSITION:
+            if (act_mode == mab::MdMode_E::POSITION_PID) return;
+            {
+                std::lock_guard<std::mutex> lk(_act_mode_mutex);
+                _actuator_motion_mode = mab::MdMode_E::POSITION_PID;
             }
+            // ensure controllers are in position mode and set current position as target
+            enqueueTask([this]() {
+                for (size_t i = 0; i < _mds.size(); ++i) {
+                    // switch to position control
+                    mab::MD::Error_t r = _mds[i]->setMotionMode(mab::MdMode_E::POSITION_PID);
+                    if (r != mab::MD::Error_t::OK) {
+                        RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to POSITION_PID: %d", _mds[i]->getCanId(), static_cast<int>(r));
+                    }
+                }
 
-            // set current position as target for all motors
-            for (size_t i = 0; i < _mds.size(); ++i) {
-                float pos = 0.0f;
-                {
-                    // fallback to last known state
-                    std::lock_guard<std::mutex> lk(_state_mutex);
-                    if (i < _md_states.size()) pos = _md_states[i].position;
-                }
+                // set current position as target for all motors
+                for (size_t i = 0; i < _mds.size(); ++i) {
+                    float pos = 0.0f;
+                    {
+                        // fallback to last known state
+                        std::lock_guard<std::mutex> lk(_state_mutex);
+                        if (i < _md_states.size()) pos = _md_states[i].position;
+                    }
 
-                mab::MD::Error_t r = _mds[i]->setTargetPosition(pos);
-                if (r != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "Failed to set hold position for MD %d: %d", _mds[i]->getCanId(), static_cast<int>(r));
+                    mab::MD::Error_t r = _mds[i]->setTargetPosition(pos);
+                    if (r != mab::MD::Error_t::OK) {
+                        RCLCPP_WARN(this->get_logger(), "Failed to set hold position for MD %d: %d", _mds[i]->getCanId(), static_cast<int>(r));
+                    }
                 }
+            });
+            break;
+        case RobotControlMode_t::RL_POLICY:
+            // policy uses torque control
+            if (act_mode == mab::MdMode_E::RAW_TORQUE) return;
+            {
+                std::lock_guard<std::mutex> lk(_act_mode_mutex);
+                _actuator_motion_mode = mab::MdMode_E::RAW_TORQUE;
             }
-        });
-    } else if (mode == RobotControlMode_t::MANUAL) {
-        // manual uses position control as well so ensure mode
-        enqueueTask([this]() {
-            for (auto& md : _mds) {
-                mab::MD::Error_t r = md->setMotionMode(mab::MdMode_E::POSITION_PID);
-                if (r != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to POSITION_PID: %d", md->getCanId(), static_cast<int>(r));
+            enqueueTask([this]() {
+                for (auto& md : _mds) {
+                    mab::MD::Error_t r = md->setMotionMode(mab::MdMode_E::RAW_TORQUE);
+                    if (r != mab::MD::Error_t::OK) {
+                        RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to TORQUE: %d", md->getCanId(), static_cast<int>(r));
+                    }
                 }
-            }
-        });
-    } else if (mode == RobotControlMode_t::RL_POLICY) {
-        // policy uses torque control
-        enqueueTask([this]() {
-            for (auto& md : _mds) {
-                mab::MD::Error_t r = md->setMotionMode(mab::MdMode_E::RAW_TORQUE);
-                if (r != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "Failed to set MD %d to TORQUE: %d", md->getCanId(), static_cast<int>(r));
-                }
-            }
-        });
+            });
+        case RobotControlMode_t::ZERO_ENCODERS:
+            break;
+        default:
+            RCLCPP_ERROR(this->get_logger(), "Unknown target robot control mode: %s", robotControlModeToString(mode).c_str());
+            break;
     }
+
+    return;
 }
 
 mab::MD::Error_t ActuatorsControlNode::blinkActuators(const std::vector<uint16_t>& joint_ids) {
@@ -424,18 +460,17 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
     };
 
     // current button/axis values (safely extracted)
-    // const bool btn_a = safeButton(A_BTN_IDX);
-    // const bool btn_b = safeButton(B_BTN_IDX);
-    // const bool btn_x = safeButton(X_BTN_IDX);
-    // const bool btn_y = safeButton(Y_BTN_IDX);
     const bool btn_lb = safeButton(LB_BTN_IDX);
     const bool btn_rb = safeButton(RB_BTN_IDX);
-    // const bool btn_back = safeButton(BACK_BTN_IDX);
-    // const bool btn_start = safeButton(START_BTN_IDX);
-
     const float left_trigger = safeAxis(LEFT_TRIGGER_AXIS_IDX);
     const float right_trigger = safeAxis(RIGHT_TRIGGER_AXIS_IDX);
     const float dpad_x = safeAxis(DPAD_X_AXIS_IDX);
+
+    RobotControlMode_t mode;
+    {
+        std::lock_guard<std::mutex> lk(_ctrl_mode_mutex);
+        mode = _control_mode;
+    }
 
     // rising edge detection helpers
     auto risingBtn = [&](size_t idx) -> bool {
@@ -474,11 +509,12 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
             _zero_waiting.store(false);
             _zero_cv.notify_all();
         }
+        return;
     }
 
     // --- Toggle actuators ON/OFF -------------------------
     if (btn_lb && btn_rb && (risingBtn(LB_BTN_IDX) || risingBtn(RB_BTN_IDX))) {
-        if (_control_mode == RobotControlMode_t::OFF) {
+        if (mode == RobotControlMode_t::OFF) {
             setRobotControlMode(RobotControlMode_t::HOLD_POSITION);
             RCLCPP_INFO(this->get_logger(), "Motors ENABLED (HOLD_POSITION)");
         } else {
@@ -490,7 +526,8 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
     }
 
     // --- Start interactive zeroing with Y (rising edge) ---
-    if (risingBtn(Y_BTN_IDX) && _control_mode == RobotControlMode_t::OFF) {
+    if (risingBtn(Y_BTN_IDX) && mode == RobotControlMode_t::OFF) {
+        setRobotControlMode(RobotControlMode_t::ZERO_ENCODERS);
         // only allow starting if not already waiting
         if (!_zero_waiting.load()) {
             RCLCPP_INFO(this->get_logger(), "User requested interactive zeroing via gamepad (Y pressed). Starting interactive zeroing on worker.");
@@ -503,20 +540,20 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
     }
 
     // --- Select control mode -----------------------------
-    if (_control_mode != RobotControlMode_t::OFF) {
+    if (mode != RobotControlMode_t::OFF) {
         if (risingBtn(X_BTN_IDX)) {
-            auto new_mode = _control_mode == RobotControlMode_t::HOLD_POSITION ? RobotControlMode_t::MANUAL
-                                                                               : RobotControlMode_t::HOLD_POSITION;
+            auto new_mode = mode == RobotControlMode_t::HOLD_POSITION ? RobotControlMode_t::MANUAL
+                                                                      : RobotControlMode_t::HOLD_POSITION;
             setRobotControlMode(new_mode);
-            RCLCPP_INFO(this->get_logger(), "X Button pressed. Control mode: %s", robotControlModeToString(_control_mode).c_str());
+            RCLCPP_INFO(this->get_logger(), "X Button pressed. Control mode: %s", robotControlModeToString(mode).c_str());
             blinkActuators(ALL_CAN_ACTUATOR_IDS);
             _last_joy_msg = msg;
             return;
         } else if (risingBtn(START_BTN_IDX)) {
-            auto new_mode = _control_mode == RobotControlMode_t::RL_POLICY ? RobotControlMode_t::HOLD_POSITION
-                                                                           : RobotControlMode_t::RL_POLICY;
+            auto new_mode = mode == RobotControlMode_t::RL_POLICY ? RobotControlMode_t::HOLD_POSITION
+                                                                  : RobotControlMode_t::RL_POLICY;
             setRobotControlMode(new_mode);
-            RCLCPP_INFO(this->get_logger(), "START Button pressed. Control mode: %s", robotControlModeToString(_control_mode).c_str());
+            RCLCPP_INFO(this->get_logger(), "START Button pressed. Control mode: %s", robotControlModeToString(mode).c_str());
             blinkActuators(ALL_CAN_ACTUATOR_IDS);
             _last_joy_msg = msg;
             return;
@@ -524,7 +561,7 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
     }
 
     // --- Manual mode actuator selection ------------------
-    if (_control_mode == RobotControlMode_t::MANUAL) {
+    if (mode == RobotControlMode_t::MANUAL) {
         if (dpad_x == 1.0f && risingAxis(DPAD_X_AXIS_IDX, true)) {
             if (!_mds.empty()) {
                 _manual_control_actuator_idx = (_manual_control_actuator_idx + 1) % _mds.size();
@@ -548,8 +585,8 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
         // Update command only trigger value has changed
         if (right_trigger != safePrevAxis(RIGHT_TRIGGER_AXIS_IDX) || left_trigger != safePrevAxis(LEFT_TRIGGER_AXIS_IDX)) {
             float delta_pos = 0.0f;
-            delta_pos += right_trigger;  // move forward
-            delta_pos -= left_trigger;  // move backward
+            delta_pos += right_trigger;              // move forward
+            delta_pos -= left_trigger;               // move backward
             float command_value = delta_pos * 0.1f;  // scale down for fine control
 
             // enqueue task that applies command to selected MD
@@ -576,7 +613,13 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
 }
 
 void ActuatorsControlNode::command_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg) {
-    if (_control_mode != RobotControlMode_t::RL_POLICY) return;
+    RobotControlMode_t mode;
+    {
+        std::lock_guard<std::mutex> lk(_ctrl_mode_mutex);
+        mode = _control_mode;
+    }
+
+    if (mode != RobotControlMode_t::RL_POLICY) return;
 
     std::vector<float> actions = msg->data;
 
