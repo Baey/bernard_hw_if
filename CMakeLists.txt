@@ -63,6 +63,10 @@ endfunction()
 
 # Build CANdle library
 add_subdirectory(CANdle-SDK)
+install(FILES
+  $<TARGET_FILE:candle>
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 set(message "${ORIGINAL_CMAKE_MESSAGE_FUNCTION}")
 
@@ -146,7 +150,8 @@ ament_target_dependencies(actuators_full_if
 install(TARGETS
     ${BERNARD_EXECUTABLES}
     bernard_actuators_control_node
-    DESTINATION lib/${PROJECT_NAME})
+    DESTINATION lib/${PROJECT_NAME}
+)
 
 if(BUILD_TESTING)
     message(STATUS "\n# Building BERNARD tests")

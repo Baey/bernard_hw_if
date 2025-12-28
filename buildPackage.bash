@@ -36,7 +36,6 @@ fi
 # --- BUILD ---
 colcon build --executor parallel \
     --packages-select bernard_hw_if \
-    --symlink-install \
     --cmake-clean-cache \
     --event-handlers console_direct+ \
     --cmake-args -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE"
