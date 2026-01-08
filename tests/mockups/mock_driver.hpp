@@ -52,6 +52,12 @@ class MockMDActuatorDriver : public Bernard::IActuatorDriver {
     /// @brief Get the CAN ID of the actuator
     mab::canId_t getCanId() const override { return _mock_can_id; }
 
+    /// @brief Enable the actuator
+    MOCK_METHOD(mab::MD::Error_t, enable, (), (override));
+
+    /// @brief Disable the actuator
+    MOCK_METHOD(mab::MD::Error_t, disable, (), (override));
+
    private:
     const mab::canId_t _mock_can_id;
     const float _mock_position;

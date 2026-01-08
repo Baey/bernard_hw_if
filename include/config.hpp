@@ -45,12 +45,12 @@ static const std::vector<uint16_t> ALL_CAN_ACTUATOR_IDS = {
 /// @brief Button indices for joystick messages
 constexpr int A_BTN_IDX = 0;
 constexpr int B_BTN_IDX = 1;
-constexpr int X_BTN_IDX = 2;
-constexpr int Y_BTN_IDX = 3;
-constexpr int LB_BTN_IDX = 4;
-constexpr int RB_BTN_IDX = 5;
-constexpr int BACK_BTN_IDX = 6;
-constexpr int START_BTN_IDX = 7;
+constexpr int X_BTN_IDX = 3;
+constexpr int Y_BTN_IDX = 4;
+constexpr int LB_BTN_IDX = 6;
+constexpr int RB_BTN_IDX = 7;
+constexpr int BACK_BTN_IDX = 10;
+constexpr int START_BTN_IDX = 11;
 
 /// @brief D-pad axis indices for joystick messages
 constexpr int DPAD_X_AXIS_IDX = 6;
@@ -63,8 +63,8 @@ constexpr int RIGHT_STICK_X_AXIS_IDX = 3;
 constexpr int RIGHT_STICK_Y_AXIS_IDX = 4;
 
 /// @brief Trigger axis indices for joystick messages
-constexpr int LEFT_TRIGGER_AXIS_IDX = 2;
 constexpr int RIGHT_TRIGGER_AXIS_IDX = 5;
+constexpr int LEFT_TRIGGER_AXIS_IDX = 6;
 
 // ========== Node Configuration ========== //
 /// @brief Node name

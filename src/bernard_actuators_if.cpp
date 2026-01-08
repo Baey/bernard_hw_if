@@ -27,7 +27,7 @@ int main(int argc, char** argv) {
 
     // Initialize CANdle instance
     auto candle = std::unique_ptr<mab::Candle>(
-        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, mab::candleTypes::busTypes_t::USB));
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_8M, mab::candleTypes::busTypes_t::USB));
 
     // Discover and initialize MD actuators
     std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds;

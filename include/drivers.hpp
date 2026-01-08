@@ -27,6 +27,8 @@ class IActuatorDriver {
     virtual std::pair<float, mab::MD::Error_t> getTorque() = 0;
     virtual std::pair<float, mab::MD::Error_t> getMosfetTemperature() = 0;
     virtual mab::canId_t getCanId() const = 0;
+    virtual mab::MD::Error_t enable() = 0;
+    virtual mab::MD::Error_t disable() = 0;
 };
 
 class MDActuatorDriver : public IActuatorDriver {
@@ -74,6 +76,12 @@ class MDActuatorDriver : public IActuatorDriver {
 
     /// @brief Get the CAN ID of the actuator
     mab::canId_t getCanId() const override { return _md.m_canId; }
+
+    /// @brief Enable the actuator
+    mab::MD::Error_t enable() override { return _md.enable(); }
+
+    /// @brief Disable the actuator
+    mab::MD::Error_t disable() override { return _md.disable(); }
 
    private:
     /// @brief Underlying mab::MD instance
