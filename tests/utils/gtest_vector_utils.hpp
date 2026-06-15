@@ -20,3 +20,13 @@
             EXPECT_CALL(*static_cast<mock_type*>(m.get()), method_call).Times(times); \
         }                                                                             \
     } while (0)
+
+// Convenience for the bulk motion-state read
+#define EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(vec, mock_type, times)                  \
+    do {                                                                               \
+        for (auto& m : vec) {                                                          \
+            EXPECT_CALL(*static_cast<mock_type*>(m.get()),                             \
+                        readMotionState(::testing::_, ::testing::_, ::testing::_))     \
+                .Times(times);                                                         \
+        }                                                                              \
+    } while (0)

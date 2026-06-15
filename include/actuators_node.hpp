@@ -77,17 +77,15 @@ class ActuatorsControlNode : public rclcpp::Node {
     mab::MD::Error_t zeroEncodersWork();
 
     /**
-     * @brief Blink selected actuator LEDs
+     * @brief Blink selected actuator LEDs (blocking; waits for the worker result).
+     *
+     * @warning Must NOT be called from the worker thread: it enqueues a task and waits
+     * for the worker to run it, which would deadlock. Joystick-triggered blinks use the
+     * fire-and-forget enqueueBlink() instead.
      * @param joint_ids Vector of joint IDs to blink
      * @return mab::MD::Error_t indicating success or failure
      */
     mab::MD::Error_t blinkActuators(const std::vector<uint16_t>& can_ids);
-
-    /**
-     * @brief Get the current control mode
-     * @return Current control mode
-     */
-    RobotControlMode_t getControlMode() const { return _control_mode; };
 
     /**
      * @brief Set robot control mode
@@ -118,11 +116,21 @@ class ActuatorsControlNode : public rclcpp::Node {
     /// @brief Worker thread loop for CAN operations
     void canWorkerLoop();
 
+    /// @brief Apply the most recently received RL action vector (worker thread only).
+    /// No-op unless a new vector arrived and the robot is in RL_POLICY mode.
+    void applyLatestActions();
+
     /// @brief Enqueue a task to be executed by the worker thread
     /// @param task The task to enqueue
     void enqueueTask(std::function<void()> task);
 
+    /// @brief Fire-and-forget blink of the given CAN IDs on the worker thread.
+    /// Safe to call from ROS callbacks (does not block the executor).
+    void enqueueBlink(const std::vector<uint16_t>& can_ids);
+
     /// @brief Enqueue a task with a result to be executed by the worker thread
+    /// @warning Blocks the calling thread until the worker runs the task. Never call
+    /// from the worker thread itself - that is a guaranteed deadlock.
     /// @param work The task to enqueue
     /// @param timeout The maximum time to wait for the result
     /// @return The result of the task
@@ -169,9 +177,6 @@ class ActuatorsControlNode : public rclcpp::Node {
     /// @brief Vector to hold MD state information
     std::vector<ActuatorState> _md_states;
 
-    /// @brief Message counter
-    size_t _count{0};
-
     /// @brief ROS2 state timer
     rclcpp::TimerBase::SharedPtr _state_timer;
 
@@ -196,14 +201,11 @@ class ActuatorsControlNode : public rclcpp::Node {
     /// @brief Robot control mode
     RobotControlMode_t _control_mode = RobotControlMode_t::OFF;
 
-    /// @brief Manual control selected motor index
-    size_t _manual_control_actuator_idx{0};
+    /// @brief Manual control selected motor index (read by worker, written by joy callback)
+    std::atomic<size_t> _manual_control_actuator_idx{0};
 
     /// @brief Stored joystick message
     sensor_msgs::msg::Joy::SharedPtr _last_joy_msg{nullptr};
-
-    /// @brief Mutex for thread-safe operations
-    std::mutex _mutex;
 
     /// @brief Mutex for state variables
     std::mutex _state_mutex;
@@ -222,6 +224,15 @@ class ActuatorsControlNode : public rclcpp::Node {
 
     /// @brief Queue of tasks to be executed by the worker thread
     std::queue<std::function<void()>> _cmd_queue;
+
+    /// @brief Mutex guarding the latest RL action command (latest-wins, never queued)
+    std::mutex _actions_mutex;
+
+    /// @brief Most recent RL action vector received on the actions topic
+    std::vector<float> _latest_actions;
+
+    /// @brief True when a new action vector arrived since the worker last applied one
+    bool _have_new_actions{false};
 
     /// @brief Worker thread
     std::thread _worker_thread;

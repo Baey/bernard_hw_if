@@ -46,6 +46,9 @@ class MockMDActuatorDriver : public Bernard::IActuatorDriver {
     /// @brief Get the current torque of the actuator
     MOCK_METHOD((std::pair<float, mab::MD::Error_t>), getTorque, (), (override));
 
+    /// @brief Read position, velocity and torque in a single bulk transaction
+    MOCK_METHOD(mab::MD::Error_t, readMotionState, (float& position, float& velocity, float& torque), (override));
+
     /// @brief Get the MOSFET temperature of the actuator
     MOCK_METHOD((std::pair<float, mab::MD::Error_t>), getMosfetTemperature, (), (override));
 

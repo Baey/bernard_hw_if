@@ -25,5 +25,12 @@ MockMDActuatorDriver::MockMDActuatorDriver(
     ON_CALL(*this, getPosition()).WillByDefault(Return(std::make_pair(_mock_position, mab::MD::Error_t::OK)));
     ON_CALL(*this, getVelocity()).WillByDefault(Return(std::make_pair(_mock_velocity, mab::MD::Error_t::OK)));
     ON_CALL(*this, getTorque()).WillByDefault(Return(std::make_pair(_mock_torque, mab::MD::Error_t::OK)));
+    ON_CALL(*this, readMotionState(::testing::_, ::testing::_, ::testing::_))
+        .WillByDefault(Invoke([this](float& position, float& velocity, float& torque) {
+            position = _mock_position;
+            velocity = _mock_velocity;
+            torque = _mock_torque;
+            return mab::MD::Error_t::OK;
+        }));
     ON_CALL(*this, getMosfetTemperature()).WillByDefault(Return(std::make_pair(_mock_temperature, mab::MD::Error_t::OK)));
 }

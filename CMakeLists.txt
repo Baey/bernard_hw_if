@@ -86,15 +86,15 @@ else()
     )
     message("\n# BERNARD Actuators Control Node will be delivered as static library\n")
 endif()
-target_link_libraries(bernard_actuators_control_node candle)
+target_link_libraries(bernard_actuators_control_node
+    candle
+    rclcpp::rclcpp
+    ${std_msgs_TARGETS}
+    ${sensor_msgs_TARGETS}
+)
 target_include_directories(bernard_actuators_control_node PUBLIC 
     $<BUILD_INTERFACE:${INCLUDE_DIR}>
     $<INSTALL_INTERFACE:include>
-)
-ament_target_dependencies(bernard_actuators_control_node 
-    rclcpp
-    std_msgs
-    sensor_msgs
 )
 
 # Build node executables
@@ -110,11 +110,9 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_link_libraries(actuators_pub_only_if
         bernard_actuators_control_node
         candle
-    )
-    ament_target_dependencies(actuators_pub_only_if 
-        rclcpp
-        std_msgs
-        sensor_msgs
+        rclcpp::rclcpp
+        ${std_msgs_TARGETS}
+        ${sensor_msgs_TARGETS}
     )
     list(APPEND BERNARD_EXECUTABLES actuators_pub_only_if)
     # PUB WITH JOY NODE
@@ -124,11 +122,9 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_link_libraries(actuators_pub_with_joy_if
         bernard_actuators_control_node
         candle
-    )
-    ament_target_dependencies(actuators_pub_with_joy_if 
-        rclcpp
-        std_msgs
-        sensor_msgs
+        rclcpp::rclcpp
+        ${std_msgs_TARGETS}
+        ${sensor_msgs_TARGETS}
     )
     list(APPEND BERNARD_EXECUTABLES actuators_pub_with_joy_if)
 endif()
@@ -140,11 +136,9 @@ target_compile_definitions(actuators_full_if PRIVATE FULL_NODE)
 target_link_libraries(actuators_full_if
     bernard_actuators_control_node
     candle
-)
-ament_target_dependencies(actuators_full_if 
-    rclcpp
-    std_msgs
-    sensor_msgs
+    rclcpp::rclcpp
+    ${std_msgs_TARGETS}
+    ${sensor_msgs_TARGETS}
 )
 
 install(TARGETS
@@ -176,16 +170,13 @@ if(BUILD_TESTING)
         bernard_actuators_control_node
         candle
         GTest::gmock_main
+        rclcpp::rclcpp
+        ${std_msgs_TARGETS}
+        ${sensor_msgs_TARGETS}
     )
 
     find_package(ament_lint_auto REQUIRED)
     ament_lint_auto_find_test_dependencies()
-
-    ament_target_dependencies(test_actuators_node
-        rclcpp
-        std_msgs
-        sensor_msgs
-    )
 
     ament_add_test(
         test_actuators_node_test
