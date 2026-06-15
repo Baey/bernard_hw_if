@@ -24,7 +24,7 @@ namespace Bernard {
 
 ActuatorsControlNode::ActuatorsControlNode(
     std::unique_ptr<mab::Candle> candle, std::vector<std::unique_ptr<IActuatorDriver>>&& mds, ActuatorsControlNodeMode_t mode)
-    : Node(NODE_NAME), _candle(std::move(candle)), _mds(std::move(mds)), _count(0) {
+    : Node(NODE_NAME), _candle(std::move(candle)), _mds(std::move(mds)) {
     if (_mds.size() != ACTUATORS_NUM) {
         RCLCPP_ERROR(this->get_logger(), "BERNARD expects %d actuators, but got %zu", ACTUATORS_NUM, _mds.size());
         throw std::runtime_error("Incorrect number of MD instances provided");
@@ -73,7 +73,10 @@ ActuatorsControlNode::ActuatorsControlNode(
 ActuatorsControlNode::~ActuatorsControlNode() {
     RCLCPP_INFO(this->get_logger(), "ActuatorsControlNode shutting down");
     _worker_stop.store(true);
+    // Wake the worker no matter where it is blocked
+    _zero_abort.store(true);
     _cmd_cv.notify_all();
+    _zero_cv.notify_all();
     if (_worker_thread.joinable()) _worker_thread.join();
 }
 
@@ -83,6 +86,22 @@ void ActuatorsControlNode::enqueueTask(std::function<void()> task) {
         _cmd_queue.push(std::move(task));
     }
     _cmd_cv.notify_one();
+}
+
+void ActuatorsControlNode::enqueueBlink(const std::vector<uint16_t>& can_ids) {
+    enqueueTask([this, can_ids]() {
+        for (auto id : can_ids) {
+            for (auto& md : _mds) {
+                if (md->getCanId() == id) {
+                    if (md->blink() != mab::MD::Error_t::OK) {
+                        RCLCPP_ERROR(this->get_logger(), "Failed to blink LED for joint %d (%s)",
+                                     md->getCanId(), mdIdToJointName(md->getCanId()).c_str());
+                    }
+                    break;
+                }
+            }
+        }
+    });
 }
 
 void ActuatorsControlNode::canWorkerLoop() {
@@ -116,29 +135,23 @@ void ActuatorsControlNode::canWorkerLoop() {
         }
         lk.unlock();
 
+        // Apply the most recent RL action command
+        applyLatestActions();
+
         if (steady_clock::now() >= next_poll) {
             for (size_t i = 0; i < _mds.size(); ++i) {
-                auto pos_pair = _mds[i]->getPosition();
-                if (pos_pair.second != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "getPosition failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(pos_pair.second));
-                    continue;
-                }
-                auto vel_pair = _mds[i]->getVelocity();
-                if (vel_pair.second != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "getVelocity failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(vel_pair.second));
-                    continue;
-                }
-                auto torque_pair = _mds[i]->getTorque();
-                if (torque_pair.second != mab::MD::Error_t::OK) {
-                    RCLCPP_WARN(this->get_logger(), "getTorque failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(torque_pair.second));
+                float pos = 0.0f, vel = 0.0f, torque = 0.0f;
+                mab::MD::Error_t r = _mds[i]->readMotionState(pos, vel, torque);
+                if (r != mab::MD::Error_t::OK) {
+                    RCLCPP_WARN(this->get_logger(), "readMotionState failed for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(r));
                     continue;
                 }
 
                 {
                     std::lock_guard<std::mutex> lk(_state_mutex);
-                    _md_states[i].position = pos_pair.first;
-                    _md_states[i].velocity = vel_pair.first;
-                    _md_states[i].torque = torque_pair.first;
+                    _md_states[i].position = pos;
+                    _md_states[i].velocity = vel;
+                    _md_states[i].torque = torque;
                 }
             }
 
@@ -146,7 +159,6 @@ void ActuatorsControlNode::canWorkerLoop() {
         }
 
         if (steady_clock::now() >= next_temp_poll) {
-            mab::MDRegisters_S registerBuffer;
             for (size_t i = 0; i < _mds.size(); ++i) {
                 auto temp_pair = _mds[i]->getMosfetTemperature();
                 if (temp_pair.second != mab::MD::Error_t::OK) {
@@ -174,7 +186,7 @@ void ActuatorsControlNode::canWorkerLoop() {
             if (now - _last_manual_blink >= MANUAL_SELECTION_BLINK_INTERVAL) {
                 try {
                     // worker is allowed to call _mds directly
-                    _mds[_manual_control_actuator_idx]->blink();
+                    _mds[_manual_control_actuator_idx.load()]->blink();
                 } catch (const std::exception& e) {
                     RCLCPP_ERROR(this->get_logger(), "Error blinking manual actuator: %s", e.what());
                 } catch (...) {
@@ -244,9 +256,9 @@ mab::MD::Error_t ActuatorsControlNode::zeroEncodersWork() {
         // Blink current MD periodically while waiting for user input
         auto last_blink = std::chrono::steady_clock::now();
 
-        // Wait until joy_callback notifies or abort
+        // Wait until joy_callback notifies, abort, or node shutdown
         std::unique_lock<std::mutex> zlk(_zero_mutex);
-        while (_zero_waiting.load() && !_zero_abort.load()) {
+        while (_zero_waiting.load() && !_zero_abort.load() && !_worker_stop.load()) {
             auto now = std::chrono::steady_clock::now();
             if (now - last_blink >= ZEROING_BLINK_INTERVAL) {
                 try {
@@ -258,6 +270,12 @@ mab::MD::Error_t ActuatorsControlNode::zeroEncodersWork() {
             }
             // wait with timeout to allow blinking loop to run
             _zero_cv.wait_for(zlk, std::chrono::milliseconds(100));
+        }
+
+        // Bail out immediately on shutdown so the destructor's join() can complete
+        if (_worker_stop.load()) {
+            RCLCPP_WARN(this->get_logger(), "Zeroing interrupted by node shutdown.");
+            return mab::MD::Error_t::OK;
         }
 
         // If aborted entire procedure
@@ -402,6 +420,7 @@ void ActuatorsControlNode::setRobotControlMode(const RobotControlMode_t mode) {
                     }
                 }
             });
+            break;
         case RobotControlMode_t::ZERO_ENCODERS:
             break;
         default:
@@ -440,6 +459,15 @@ mab::MD::Error_t ActuatorsControlNode::blinkActuators(const std::vector<uint16_t
 
 void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr msg) {
     if (!msg) return;
+
+    // Always record this message as the "previous" frame on the way out, regardless of
+    // which branch returns. Rising-edge detection depends on _last_joy_msg being updated
+    // every callback
+    struct JoyMsgGuard {
+        sensor_msgs::msg::Joy::SharedPtr& last;
+        const sensor_msgs::msg::Joy::SharedPtr& cur;
+        ~JoyMsgGuard() { last = cur; }
+    } joy_guard{_last_joy_msg, msg};
 
     // safe access helpers - joystick messages may have variable lengths
     auto safeButton = [&](size_t idx) -> int {
@@ -521,7 +549,6 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
             setRobotControlMode(RobotControlMode_t::OFF);
             RCLCPP_INFO(this->get_logger(), "Motors DISABLED");
         }
-        _last_joy_msg = msg;
         return;
     }
 
@@ -535,7 +562,6 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
                 this->zeroEncodersWork();
             });
         }
-        _last_joy_msg = msg;
         return;
     }
 
@@ -546,16 +572,14 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
                                                                       : RobotControlMode_t::HOLD_POSITION;
             setRobotControlMode(new_mode);
             RCLCPP_INFO(this->get_logger(), "X Button pressed. Control mode: %s", robotControlModeToString(mode).c_str());
-            blinkActuators(ALL_CAN_ACTUATOR_IDS);
-            _last_joy_msg = msg;
+            enqueueBlink(ALL_CAN_ACTUATOR_IDS);
             return;
         } else if (risingBtn(START_BTN_IDX)) {
             auto new_mode = mode == RobotControlMode_t::RL_POLICY ? RobotControlMode_t::HOLD_POSITION
                                                                   : RobotControlMode_t::RL_POLICY;
             setRobotControlMode(new_mode);
             RCLCPP_INFO(this->get_logger(), "START Button pressed. Control mode: %s", robotControlModeToString(mode).c_str());
-            blinkActuators(ALL_CAN_ACTUATOR_IDS);
-            _last_joy_msg = msg;
+            enqueueBlink(ALL_CAN_ACTUATOR_IDS);
             return;
         }
     }
@@ -564,21 +588,21 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
     if (mode == RobotControlMode_t::MANUAL) {
         if (dpad_x == 1.0f && risingAxis(DPAD_X_AXIS_IDX, true)) {
             if (!_mds.empty()) {
-                _manual_control_actuator_idx = (_manual_control_actuator_idx + 1) % _mds.size();
-                auto can_id = _mds[_manual_control_actuator_idx]->getCanId();
-                RCLCPP_INFO(this->get_logger(), "Selected motor: %zu (%s)", _manual_control_actuator_idx, mdIdToJointName(can_id).c_str());
-                blinkActuators({can_id});
+                size_t idx = (_manual_control_actuator_idx.load() + 1) % _mds.size();
+                _manual_control_actuator_idx.store(idx);
+                auto can_id = _mds[idx]->getCanId();
+                RCLCPP_INFO(this->get_logger(), "Selected motor: %zu (%s)", idx, mdIdToJointName(can_id).c_str());
+                enqueueBlink({can_id});
             }
-            _last_joy_msg = msg;
             return;
         } else if (dpad_x == -1.0f && risingAxis(DPAD_X_AXIS_IDX, false)) {
             if (!_mds.empty()) {
-                _manual_control_actuator_idx = (_manual_control_actuator_idx + _mds.size() - 1) % _mds.size();
-                auto can_id = _mds[_manual_control_actuator_idx]->getCanId();
-                RCLCPP_INFO(this->get_logger(), "Selected motor: %zu (%s)", _manual_control_actuator_idx, mdIdToJointName(can_id).c_str());
-                blinkActuators({can_id});
+                size_t idx = (_manual_control_actuator_idx.load() + _mds.size() - 1) % _mds.size();
+                _manual_control_actuator_idx.store(idx);
+                auto can_id = _mds[idx]->getCanId();
+                RCLCPP_INFO(this->get_logger(), "Selected motor: %zu (%s)", idx, mdIdToJointName(can_id).c_str());
+                enqueueBlink({can_id});
             }
-            _last_joy_msg = msg;
             return;
         }
 
@@ -590,9 +614,13 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
             float command_value = delta_pos * 0.1f;  // scale down for fine control
 
             // enqueue task that applies command to selected MD
-            enqueueTask([this, idx = _manual_control_actuator_idx, val = command_value]() {
+            enqueueTask([this, idx = _manual_control_actuator_idx.load(), val = command_value]() {
                 try {
-                    float current_pos = _md_states[idx].position;
+                    float current_pos;
+                    {
+                        std::lock_guard<std::mutex> lk(_state_mutex);
+                        current_pos = _md_states[idx].position;
+                    }
                     float target_pos = current_pos + val;
                     mab::MD::Error_t r = _mds[idx]->setTargetPosition(target_pos);
                     if (r != mab::MD::Error_t::OK) {
@@ -604,12 +632,8 @@ void ActuatorsControlNode::joy_callback(const sensor_msgs::msg::Joy::SharedPtr m
             });
         }
 
-        _last_joy_msg = msg;
         return;
     }
-
-    _last_joy_msg = msg;
-    return;
 }
 
 void ActuatorsControlNode::command_callback(const std_msgs::msg::Float32MultiArray::SharedPtr msg) {
@@ -621,21 +645,36 @@ void ActuatorsControlNode::command_callback(const std_msgs::msg::Float32MultiArr
 
     if (mode != RobotControlMode_t::RL_POLICY) return;
 
-    std::vector<float> actions = msg->data;
+    // Latest-wins: just store the newest action vector
+    std::lock_guard<std::mutex> lk(_actions_mutex);
+    _latest_actions = msg->data;
+    _have_new_actions = true;
+}
 
-    enqueueTask([this, actions = std::move(actions)]() {
-        for (size_t i = 0; i < _mds.size() && i < actions.size(); ++i) {
-            float a = actions[i];
-            try {
-                mab::MD::Error_t r = _mds[i]->setTargetTorque(a);
-                if (r != mab::MD::Error_t::OK) {
-                    RCLCPP_ERROR(this->get_logger(), "Failed to set torque command for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(r));
-                }
-            } catch (...) {
-                RCLCPP_ERROR(this->get_logger(), "Failed to apply action to MD %zu", i);
+void ActuatorsControlNode::applyLatestActions() {
+    {
+        std::lock_guard<std::mutex> lk(_ctrl_mode_mutex);
+        if (_control_mode != RobotControlMode_t::RL_POLICY) return;
+    }
+
+    std::vector<float> actions;
+    {
+        std::lock_guard<std::mutex> lk(_actions_mutex);
+        if (!_have_new_actions) return;
+        actions.swap(_latest_actions);
+        _have_new_actions = false;
+    }
+
+    for (size_t i = 0; i < _mds.size() && i < actions.size(); ++i) {
+        try {
+            mab::MD::Error_t r = _mds[i]->setTargetTorque(actions[i]);
+            if (r != mab::MD::Error_t::OK) {
+                RCLCPP_ERROR(this->get_logger(), "Failed to set torque command for MD %zu (CAN %d): %d", i, _mds[i]->getCanId(), static_cast<int>(r));
             }
+        } catch (...) {
+            RCLCPP_ERROR(this->get_logger(), "Failed to apply action to MD %zu", i);
         }
-    });
+    }
 }
 
 }  // namespace Bernard

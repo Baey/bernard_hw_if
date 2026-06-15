@@ -48,6 +48,8 @@ std::string robotControlModeToString(const RobotControlMode_t mode) {
             return "RL_POLICY";
         case RobotControlMode_t::HOLD_POSITION:
             return "HOLD_POSITION";
+        case RobotControlMode_t::ZERO_ENCODERS:
+            return "ZERO_ENCODERS";
         default:
             return "UNKNOWN_CONTROL_MODE";
     }

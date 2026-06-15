@@ -7,7 +7,10 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <future>
+#include <limits>
 #include <thread>
+#include <vector>
 
 #include "I_communication_interface_mock.hpp"
 #include "MD.hpp"
@@ -64,9 +67,7 @@ TEST_F(ActuatorsNodeTest, ConstructorStartStopWorker) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AtMost(1));
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AtMost(1));
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AtMost(1));
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AtMost(1));
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AtMost(1));
 
     {
         auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds));
@@ -119,9 +120,7 @@ TEST_F(ActuatorsNodeTest, CheckMDStatePublishingBasic) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AtMost(1));
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AtMost(2));
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AtMost(2));
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AtMost(2));
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AtMost(2));
 
     {
         auto subscriber = std::make_shared<TestSubscriber<sensor_msgs::msg::JointState>>("test_sub", "joint_states");
@@ -172,9 +171,7 @@ TEST_F(ActuatorsNodeTest, CheckMDStatePublishingRate) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     {
         auto subscriber = std::make_shared<TestSubscriber<sensor_msgs::msg::JointState>>("test_sub", "joint_states");
@@ -216,9 +213,7 @@ TEST_F(ActuatorsNodeTest, CheckMDStateTempBasic) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AtMost(2));
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     {
         auto subscriber = std::make_shared<TestSubscriber<std_msgs::msg::Float32MultiArray>>("test_sub", "driver_temperatures");
@@ -263,9 +258,7 @@ TEST_F(ActuatorsNodeTest, CheckMDStateTempBasicRate) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     {
         auto subscriber = std::make_shared<TestSubscriber<std_msgs::msg::Float32MultiArray>>("test_sub", "driver_temperatures");
@@ -307,9 +300,7 @@ TEST_F(ActuatorsNodeTest, JoyInputEnableDisableDrivers) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(2));
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(1));
@@ -377,9 +368,7 @@ TEST_F(ActuatorsNodeTest, JoyInputToggleMotionMode) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(1)); // Changing between hold and manual keeps in position PID
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(1)); // Changing between hold and manual doesn't send new message
@@ -456,9 +445,7 @@ TEST_F(ActuatorsNodeTest, ReadPolicyActions) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(2));
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(1));
@@ -535,9 +522,7 @@ TEST_F(ActuatorsNodeTest, ReadPolicyActionsAndPublishState) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(2));
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(1));
@@ -629,9 +614,7 @@ TEST_F(ActuatorsNodeTest, ZeroEncodersAbortProcedure) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(0));
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(0));
@@ -693,9 +676,7 @@ TEST_F(ActuatorsNodeTest, ZeroEncodersFullProcedure) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(0));
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(0));
@@ -767,9 +748,7 @@ TEST_F(ActuatorsNodeTest, ZeroEncodersFullProcedureWithSkip) {
     }
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getTorque(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getPosition(), ::testing::AnyNumber());
-    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getVelocity(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
 
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::Exactly(0));
     EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::Exactly(0));
@@ -909,6 +888,384 @@ TEST_F(ActuatorsNodeTest, CommandQueueingWithMockBus) {
     // Wait deterministically for observed transfers
     bool success = responder->waitForTransfers(static_cast<size_t>(expected), std::chrono::seconds(4));
     EXPECT_TRUE(success) << "Expected at least " << expected << " transfers, got " << responder->observedTransfers();
+}
+
+// Regression: destroying the node while an interactive zeroing is waiting for user
+// input must NOT hang.
+TEST_F(ActuatorsNodeTest, ShutdownDuringZeroingDoesNotHang) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, blink(), ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, zero(), ::testing::Exactly(0));
+
+    auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds), Bernard::ActuatorsControlNodeMode_t::PUB_WITH_JOY);
+    auto publisher = std::make_shared<TestPublisher<sensor_msgs::msg::Joy>>("test_joy_pub", "joy");
+
+    rclcpp::executors::SingleThreadedExecutor executor;
+    executor.add_node(node);
+    executor.add_node(publisher);
+    std::thread spinner_thread([&]() { executor.spin(); });
+
+    sensor_msgs::msg::Joy joy_msg;
+    joy_msg.buttons.resize(15, 0);
+    joy_msg.axes.resize(8, 0.0f);
+    publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+    // Start zeroing - worker enters the interactive wait for the first joint.
+    joy_msg.buttons[Bernard::Y_BTN_IDX] = 1;
+    publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::ZERO_ENCODERS);
+
+    // Tear down the executor, then destroy the node *without* confirming. The worker is
+    // blocked inside zeroEncodersWork; the destructor must unblock and join it.
+    executor.cancel();
+    if (spinner_thread.joinable()) spinner_thread.join();
+    executor.remove_node(node);
+    publisher.reset();
+
+    std::promise<void> destroyed;
+    auto fut = destroyed.get_future();
+    std::thread killer([&]() {
+        node.reset();  // triggers ~ActuatorsControlNode -> worker join()
+        destroyed.set_value();
+    });
+
+    auto status = fut.wait_for(std::chrono::seconds(3));
+    EXPECT_EQ(status, std::future_status::ready) << "Node destructor hung (zeroing shutdown deadlock)";
+
+    if (status == std::future_status::ready) {
+        killer.join();
+    } else {
+        killer.detach();  // regression: leave the hung thread; the failed expectation is the signal
+    }
+}
+
+// Regression: while zeroing waits for confirmation, holding A down (so it appears in
+// several consecutive joy messages without returning to 0) must confirm exactly one
+// joint, not stride through several
+TEST_F(ActuatorsNodeTest, HeldButtonConfirmsSingleJointDuringZeroing) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, blink(), ::testing::AnyNumber());
+    // Only the first joint should be zeroed by a single held A press.
+    EXPECT_CALL(*static_cast<MockMDActuatorDriver*>(mds[0].get()), zero).Times(1);
+    for (size_t i = 1; i < Bernard::ACTUATORS_NUM; ++i) {
+        EXPECT_CALL(*static_cast<MockMDActuatorDriver*>(mds[i].get()), zero).Times(0);
+    }
+
+    {
+        auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds), Bernard::ActuatorsControlNodeMode_t::PUB_WITH_JOY);
+        auto publisher = std::make_shared<TestPublisher<sensor_msgs::msg::Joy>>("test_joy_pub", "joy");
+
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
+        executor.add_node(publisher);
+        std::thread spinner_thread([&]() { executor.spin(); });
+
+        sensor_msgs::msg::Joy joy_msg;
+        joy_msg.buttons.resize(15, 0);
+        joy_msg.axes.resize(8, 0.0f);
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+
+        joy_msg.buttons[Bernard::Y_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        joy_msg.buttons[Bernard::Y_BTN_IDX] = 0;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::ZERO_ENCODERS);
+
+        // Hold A: publish A=1 in several consecutive messages without releasing it.
+        joy_msg.buttons[Bernard::A_BTN_IDX] = 1;
+        for (int i = 0; i < 5; ++i) {
+            publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+            std::this_thread::sleep_for(std::chrono::milliseconds(40));
+        }
+
+        // Still mid-procedure (waiting on joint 1), proving we did not stride through.
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::ZERO_ENCODERS);
+
+        // Abort to let the worker finish cleanly.
+        joy_msg.buttons[Bernard::A_BTN_IDX] = 0;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        joy_msg.buttons[Bernard::START_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(40));
+
+        executor.cancel();
+        if (spinner_thread.joinable()) spinner_thread.join();
+    }
+
+    SUCCEED();
+}
+
+// Regression: a burst of RL action messages must be coalesced (latest-wins) rather than
+// queued one task per message.
+TEST_F(ActuatorsNodeTest, ActionCommandsAreCoalesced) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, blink(), ::testing::AnyNumber());
+
+    std::atomic<int> torque_calls{0};
+    std::mutex last_mtx;
+    std::vector<float> last_torque(Bernard::ACTUATORS_NUM, std::numeric_limits<float>::quiet_NaN());
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        EXPECT_CALL(*static_cast<MockMDActuatorDriver*>(mds[i].get()), setTargetTorque(::testing::_))
+            .Times(::testing::AnyNumber())
+            .WillRepeatedly(::testing::Invoke([&, i](float t) {
+                torque_calls.fetch_add(1);
+                std::lock_guard<std::mutex> lk(last_mtx);
+                last_torque[i] = t;
+                return mab::MD::Error_t::OK;
+            }));
+    }
+
+    {
+        auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds), Bernard::ActuatorsControlNodeMode_t::FULL);
+        auto publisher_joy = std::make_shared<TestPublisher<sensor_msgs::msg::Joy>>("test_joy_pub", "joy");
+        auto publisher_policy = std::make_shared<TestPublisher<std_msgs::msg::Float32MultiArray>>("test_policy_pub", "actions");
+
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
+        executor.add_node(publisher_joy);
+        executor.add_node(publisher_policy);
+        std::thread spinner_thread([&]() { executor.spin(); });
+
+        sensor_msgs::msg::Joy joy_msg;
+        joy_msg.buttons.resize(15, 0);
+        joy_msg.axes.resize(8, 0.0f);
+        publisher_joy->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 1;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 1;
+        publisher_joy->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 0;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 0;
+        joy_msg.buttons[Bernard::START_BTN_IDX] = 1;
+        publisher_joy->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        EXPECT_EQ(node->getRobotControlMode(), Bernard::RobotControlMode_t::RL_POLICY);
+
+        // Publish a tight burst of distinct action vectors. Old behaviour: one queued
+        // task per message -> N*ACTUATORS_NUM torque writes. New behaviour: coalesced.
+        const int N = 60;
+        for (int m = 0; m < N; ++m) {
+            std_msgs::msg::Float32MultiArray actions_msg;
+            actions_msg.data.resize(Bernard::ACTUATORS_NUM);
+            for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+                actions_msg.data[i] = static_cast<float>(m * 10 + i);
+            }
+            publisher_policy->publish(std::make_shared<std_msgs::msg::Float32MultiArray>(actions_msg));
+        }
+
+        // Let the worker drain and apply the most recent vector.
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+        executor.cancel();
+        if (spinner_thread.joinable()) spinner_thread.join();
+
+        const int max_if_queued = N * static_cast<int>(Bernard::ACTUATORS_NUM);
+        EXPECT_LT(torque_calls.load(), max_if_queued) << "actions were not coalesced (queued per-message)";
+        EXPECT_GE(torque_calls.load(), static_cast<int>(Bernard::ACTUATORS_NUM)) << "latest actions were never applied";
+
+        // Most recent published vector was m = N-1.
+        std::lock_guard<std::mutex> lk(last_mtx);
+        for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+            EXPECT_FLOAT_EQ(last_torque[i], static_cast<float>((N - 1) * 10 + i));
+        }
+    }
+
+    SUCCEED();
+}
+
+// Regression: a joystick-triggered blink runs on the worker (fire-and-forget) and must
+// not block the ROS executor.
+TEST_F(ActuatorsNodeTest, SlowBlinkDoesNotStallPublishing) {
+    auto m_bus = std::make_unique<MockBus>();
+    MockBus* m_debugBus = m_bus.get();
+    CANDLE_MOCK_RESPONDER_INIT(m_debugBus, mockResponse);
+
+    auto m_candle = std::unique_ptr<mab::Candle>(
+        mab::attachCandle(mab::CANdleDatarate_E::CAN_DATARATE_1M, std::move(m_bus)));
+    std::vector<std::unique_ptr<Bernard::IActuatorDriver>> mds{};
+    for (size_t i = 0; i < Bernard::ACTUATORS_NUM; ++i) {
+        mds.emplace_back(std::make_unique<MockMDActuatorDriver>(Bernard::ALL_CAN_ACTUATOR_IDS[i], m_candle.get()));
+    }
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, getMosfetTemperature(), ::testing::AnyNumber());
+    EXPECT_CALL_READ_MOTION_STATE_ALL_TIMES(mds, MockMDActuatorDriver, ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setMotionMode(::testing::_), ::testing::AnyNumber());
+    EXPECT_CALL_ALL_TIMES(mds, MockMDActuatorDriver, setTargetPosition(::testing::_), ::testing::AnyNumber());
+    // Slow blink: each call sleeps, simulating real CAN latency.
+    for (auto& m : mds) {
+        EXPECT_CALL(*static_cast<MockMDActuatorDriver*>(m.get()), blink())
+            .Times(::testing::AnyNumber())
+            .WillRepeatedly(::testing::Invoke([]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(80));
+                return mab::MD::Error_t::OK;
+            }));
+    }
+
+    {
+        auto node = std::make_shared<Bernard::ActuatorsControlNode>(std::move(m_candle), std::move(mds), Bernard::ActuatorsControlNodeMode_t::PUB_WITH_JOY);
+        auto publisher = std::make_shared<TestPublisher<sensor_msgs::msg::Joy>>("test_joy_pub", "joy");
+        auto subscriber = std::make_shared<TestSubscriber<sensor_msgs::msg::JointState>>("test_sub", "joint_states");
+
+        rclcpp::executors::SingleThreadedExecutor executor;
+        executor.add_node(node);
+        executor.add_node(publisher);
+        executor.add_node(subscriber);
+        std::thread spinner_thread([&]() { executor.spin(); });
+
+        // Enable motors (HOLD_POSITION).
+        sensor_msgs::msg::Joy joy_msg;
+        joy_msg.buttons.resize(15, 0);
+        joy_msg.axes.resize(8, 0.0f);
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 1;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 1;
+        publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        joy_msg.buttons[Bernard::LB_BTN_IDX] = 0;
+        joy_msg.buttons[Bernard::RB_BTN_IDX] = 0;
+
+        // Press X repeatedly to keep triggering the (slow) blink while we measure rate.
+        std::thread blinker([&]() {
+            for (int i = 0; i < 6; ++i) {
+                joy_msg.buttons[Bernard::X_BTN_IDX] = 1;
+                publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                joy_msg.buttons[Bernard::X_BTN_IDX] = 0;
+                publisher->publish(std::make_shared<sensor_msgs::msg::Joy>(joy_msg));
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            }
+        });
+
+        float rate = subscriber->measurePubRate(std::chrono::seconds(1));
+
+        if (blinker.joinable()) blinker.join();
+        executor.cancel();
+        if (spinner_thread.joinable()) spinner_thread.join();
+
+        // If blink blocked the executor, the timer would miss many deadlines.
+        EXPECT_GE(rate, Bernard::JOINT_STATE_PUBLISH_RATE_HZ - 15.0f)
+            << "joint_states publish rate dropped - executor stalled by blink";
+    }
+
+    SUCCEED();
+}
+
+// Pure unit tests for the stateless string-mapping helpers (no ROS, no fixture).
+TEST(UtilsTest, MotionModeToString) {
+    EXPECT_EQ(motionModeToString(mab::MdMode_E::IDLE), "IDLE");
+    EXPECT_EQ(motionModeToString(mab::MdMode_E::POSITION_PID), "POSITION_PID");
+    EXPECT_EQ(motionModeToString(mab::MdMode_E::VELOCITY_PID), "VELOCITY_PID");
+    EXPECT_EQ(motionModeToString(mab::MdMode_E::RAW_TORQUE), "RAW_TORQUE");
+    EXPECT_EQ(motionModeToString(mab::MdMode_E::IMPEDANCE), "IMPEDANCE");
+    EXPECT_EQ(motionModeToString(static_cast<mab::MdMode_E>(0xFF)), "UNKNOWN_MODE");
+}
+
+TEST(UtilsTest, MdIdToJointName) {
+    // Every configured CAN id maps to a non-placeholder joint name.
+    for (const auto& id : Bernard::ALL_CAN_ACTUATOR_IDS) {
+        EXPECT_NE(Bernard::mdIdToJointName(id), "UNKNOWN_JOINT") << "id " << id;
+    }
+    EXPECT_EQ(Bernard::mdIdToJointName(106), "r_hip1_joint");
+    EXPECT_EQ(Bernard::mdIdToJointName(108), "l_knee_joint");
+    EXPECT_EQ(Bernard::mdIdToJointName(9999), "UNKNOWN_JOINT");
+}
+
+TEST(UtilsTest, RobotControlModeToString) {
+    EXPECT_EQ(Bernard::robotControlModeToString(Bernard::RobotControlMode_t::OFF), "OFF");
+    EXPECT_EQ(Bernard::robotControlModeToString(Bernard::RobotControlMode_t::MANUAL), "MANUAL");
+    EXPECT_EQ(Bernard::robotControlModeToString(Bernard::RobotControlMode_t::RL_POLICY), "RL_POLICY");
+    EXPECT_EQ(Bernard::robotControlModeToString(Bernard::RobotControlMode_t::HOLD_POSITION), "HOLD_POSITION");
+    EXPECT_EQ(Bernard::robotControlModeToString(Bernard::RobotControlMode_t::ZERO_ENCODERS), "ZERO_ENCODERS");
+}
+
+// SDK-level perf guard: against the *real* MDActuatorDriver + a counting bus,
+// readMotionState() must issue strictly fewer CAN transfers than the three
+// separate getters it replaces
+TEST_F(ActuatorsNodeTest, BulkReadIssuesFewerTransfersThanSeparateGetters) {
+    auto mock = new MockBus();
+    std::unique_ptr<mab::I_CommunicationInterface> bus_ptr(mock);
+
+    EXPECT_CALL(*mock, connect()).WillOnce(Return(mab::I_CommunicationInterface::OK));
+
+    auto responder = std::make_shared<MockResponder>();
+    responder->setAutoPadResponses(true);
+    responder->addPredicateResponse(
+        [](const std::vector<uint8_t>& d) { return !d.empty() && d[0] == static_cast<uint8_t>(mab::MdFrameId_E::READ_REGISTER); },
+        std::vector<uint8_t>{0x04, 0x01, static_cast<uint8_t>(mab::MdFrameId_E::READ_REGISTER), 0x00},
+        mab::I_CommunicationInterface::OK);
+
+    EXPECT_CALL(*mock, transfer(_, _, _))
+        .WillRepeatedly(Invoke([responder](std::vector<u8> data, const u32 timeoutMs, const size_t expectedReceivedDataSize) {
+            return responder->handleTransfer(data, timeoutMs, expectedReceivedDataSize);
+        }));
+    EXPECT_CALL(*mock, transfer(_, _))
+        .WillRepeatedly(Invoke([responder](std::vector<u8> data, const u32 timeoutMs) {
+            return responder->handleTransferNoResponse(data, timeoutMs);
+        }));
+    EXPECT_CALL(*mock, disconnect()).Times(::testing::AtLeast(0)).WillRepeatedly(Return(mab::I_CommunicationInterface::OK));
+
+    auto candle = std::make_unique<mab::Candle>(mab::CAN_DATARATE_1M, std::move(bus_ptr));
+    ASSERT_NE(candle, nullptr);
+    EXPECT_EQ(candle->init(), mab::candleTypes::Error_t::OK);
+
+    Bernard::MDActuatorDriver drv(Bernard::ALL_CAN_ACTUATOR_IDS[0], candle.get());
+
+    // Bulk read: position + velocity + torque in one shot.
+    size_t before = responder->observedTransfers();
+    float p = 0.0f, v = 0.0f, t = 0.0f;
+    drv.readMotionState(p, v, t);
+    const size_t bulk_transfers = responder->observedTransfers() - before;
+
+    // The three separate getters it replaces.
+    before = responder->observedTransfers();
+    drv.getPosition();
+    drv.getVelocity();
+    drv.getTorque();
+    const size_t separate_transfers = responder->observedTransfers() - before;
+
+    EXPECT_GE(separate_transfers, 3u) << "expected one transfer per individual getter";
+    EXPECT_LT(bulk_transfers, separate_transfers)
+        << "bulk readMotionState should issue fewer transfers (bulk=" << bulk_transfers
+        << ", separate=" << separate_transfers << ")";
 }
 
 int main(int argc, char** argv) {

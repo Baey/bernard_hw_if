@@ -25,6 +25,7 @@ class IActuatorDriver {
     virtual std::pair<float, mab::MD::Error_t> getPosition() = 0;
     virtual std::pair<float, mab::MD::Error_t> getVelocity() = 0;
     virtual std::pair<float, mab::MD::Error_t> getTorque() = 0;
+    virtual mab::MD::Error_t readMotionState(float& position, float& velocity, float& torque) = 0;
     virtual std::pair<float, mab::MD::Error_t> getMosfetTemperature() = 0;
     virtual mab::canId_t getCanId() const = 0;
 };
@@ -65,6 +66,23 @@ class MDActuatorDriver : public IActuatorDriver {
 
     /// @brief Get the current torque of the actuator
     std::pair<float, mab::MD::Error_t> getTorque() override { return _md.getTorque(); }
+
+    /// @brief Read position, velocity and torque in a single bulk CAN transaction.
+    /// @note The underlying registers (mainEncoderPosition 0x063, mainEncoderVelocity 0x062,
+    /// motorTorque 0x064) are contiguous, so the SDK packs them into one frame.
+    /// @param[out] position Position [rad]
+    /// @param[out] velocity Velocity [rad/s]
+    /// @param[out] torque Torque [Nm]
+    mab::MD::Error_t readMotionState(float& position, float& velocity, float& torque) override {
+        mab::MD::Error_t r = _md.readRegisters(
+            _registers.mainEncoderPosition, _registers.mainEncoderVelocity, _registers.motorTorque);
+        if (r == mab::MD::Error_t::OK) {
+            position = _registers.mainEncoderPosition.value;
+            velocity = _registers.mainEncoderVelocity.value;
+            torque = _registers.motorTorque.value;
+        }
+        return r;
+    }
 
     /// @brief Get the MOSFET temperature of the actuator
     std::pair<float, mab::MD::Error_t> getMosfetTemperature() override {
